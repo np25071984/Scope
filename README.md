@@ -12,15 +12,17 @@ Replaces the switcher with one that lists **windows** (not apps) from the **curr
 
 | Shortcut | Action |
 |---|---|
-| <kbd>⌥</kbd> <kbd>Tab</kbd> | next window in the current Space |
-| <kbd>⌥</kbd> <kbd>⇧</kbd> <kbd>Tab</kbd> | previous window |
+| <kbd>⌘</kbd> <kbd>Tab</kbd> | next window in the current Space |
+| <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>Tab</kbd> | previous window |
 | <kbd>esc</kbd> | dismiss without switching |
-| release <kbd>⌥</kbd> | switch to the selected window |
+| release <kbd>⌘</kbd> | switch to the selected window |
 | <kbd>⌥</kbd> <kbd>⇧</kbd> <kbd>R</kbd> | reload this config |
 
-> <kbd>⌥</kbd> is the **Option** key — the one between Control and Command, printed `alt` on some keyboards. <kbd>⇧</kbd> is **Shift**, <kbd>⌘</kbd> is **Command**.
+> <kbd>⌘</kbd> is the **Command** key, <kbd>⇧</kbd> is **Shift**, and <kbd>⌥</kbd> is **Option** — the one between Control and Command, printed `alt` on some keyboards.
 
-Hold <kbd>⌥</kbd>, tab to the window you want, release to select. Press <kbd>esc</kbd> while still holding <kbd>⌥</kbd> to back out and stay where you are.
+Hold <kbd>⌘</kbd>, tab to the window you want, release to select. Press <kbd>esc</kbd> while still holding <kbd>⌘</kbd> to back out and stay where you are.
+
+This replaces the system application switcher outright, so <kbd>⌘</kbd> <kbd>Tab</kbd> no longer reaches windows in other Spaces. Set `modifier = 'alt'` in `init.lua` to leave the system switcher alone and run scope alongside it.
 
 To cycle windows of the current app only, use the native <kbd>⌘</kbd> <kbd>`</kbd> — macOS already scopes that to the frontmost app and to the current Space, so scope does not rebind it.
 
@@ -52,7 +54,7 @@ Verify with `hs -c 'hs.autoLaunch()'`, which should print `true`.
 
 ## Configuration
 
-Everything configurable lives in the `scope.config` table at the top of `init.lua`. Edit it, then press <kbd>⌥</kbd> <kbd>⇧</kbd> <kbd>R</kbd> to reload.
+Everything configurable lives in the `scope.config` table at the top of `init.lua`. Edit it, then press <kbd>⌥</kbd> <kbd>⇧</kbd> <kbd>R</kbd> to reload. That one is still <kbd>⌥</kbd>-based on purpose, so it does not move when you change `modifier`.
 
 | Field | Meaning |
 |---|---|
@@ -65,7 +67,7 @@ Everything configurable lives in the `scope.config` table at the top of `init.lu
 
 `modifier` drives both the activation hotkeys and the release-to-select detection, so changing it in one place is enough. Key names come from `hs.keycodes.map`; run `hs -c 'hs.inspect(hs.keycodes.map)'` for the full list.
 
-Switching to <kbd>⌘</kbd> <kbd>Tab</kbd> needs one extra step: macOS registers its own app switcher at a level Hammerspoon cannot override, so turn it off first under System Settings → Keyboard → Keyboard Shortcuts → Keyboard.
+`modifier = 'cmd'` needs no system changes. The Dock owns <kbd>⌘</kbd> <kbd>Tab</kbd> and it is not one of the shortcuts System Settings can disable, so `hs.hotkey` cannot register it at all — it fails with "this hotkey is already registered". Scope therefore activates from an event tap, which sees keys before the Dock does and swallows the combination.
 
 ## Notes
 
@@ -74,8 +76,8 @@ Switching to <kbd>⌘</kbd> <kbd>Tab</kbd> needs one extra step: macOS registers
 - Native-fullscreen apps each occupy their own Space, so they correctly drop out of the list.
 - Electron apps (Slack, VS Code, Discord) are slow to answer Accessibility queries. If the switcher feels laggy, uncomment the `rejectApp` line.
 - The overlay is hand-rolled on `hs.canvas` rather than using `hs.window.switcher`. The built-in switcher lays itself out around window thumbnails, which need the Screen Recording permission, and it offers no way to cancel. Drawing icons and titles instead means Accessibility is the only permission required.
-- While the overlay is open its event tap owns only <kbd>Tab</kbd> and <kbd>esc</kbd>; every other key passes through untouched. A watchdog tears the overlay down after 10s in case a modifier release is ever missed.
-- Bindings are on <kbd>⌥</kbd> <kbd>Tab</kbd> rather than <kbd>⌘</kbd> <kbd>Tab</kbd> on purpose: if the config fails to load, the system switcher is still there to get you out.
+- One persistent event tap both opens the overlay and drives it. It swallows only the activation combination, <kbd>Tab</kbd> and <kbd>esc</kbd>; every other key returns untouched. If the handler throws, Hammerspoon passes the event through, so a broken config degrades to the system switcher rather than to a dead keyboard. A watchdog tears the overlay down after 10s in case a modifier release is ever missed.
+- Reload stays an ordinary `hs.hotkey` rather than going through the tap, so it keeps working when the tap is the thing that broke.
 
 ## Changelog
 

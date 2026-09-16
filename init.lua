@@ -46,7 +46,7 @@ scope.config = {
   -- The modifier you hold while the overlay is open. This drives BOTH the
   -- activation hotkeys and the release-to-select detection; they have to agree
   -- or the overlay opens and then never commits. Use 'alt', 'cmd' or 'ctrl'.
-  modifier = 'alt',
+  modifier = 'cmd',
 
   -- Key pressed with the modifier to open the overlay and step forward.
   -- Modifier+shift+this steps backward.
@@ -83,22 +83,21 @@ local COLOR = {
   subtitle  = { white = 1,    alpha = 0.52 },
 }
 
-local canvas, wins, idx, tap, watchdog = nil, {}, 1, nil, nil
+local canvas, wins, idx, watchdog = nil, {}, 1, nil
 
 local function rowY(i) return PAD + (i - 1) * ROW_H end
 
 local function teardown()
-  if tap      then tap:stop();      tap      = nil end
   if watchdog then watchdog:stop(); watchdog = nil end
-  if canvas   then canvas:delete();  canvas   = nil end
-  -- Re-arm the hotkeys that were disabled while the overlay owned the keyboard.
-  if scope.hotkeys then
-    for _, hk in ipairs(scope.hotkeys) do hk:enable() end
-  end
+  if canvas   then canvas:delete(); canvas   = nil end
 end
 
 function scope.cancel()
   teardown()
+end
+
+function scope.isOpen()
+  return canvas ~= nil
 end
 
 function scope.commit()
@@ -183,26 +182,44 @@ local function matches(names, keycode)
   return false
 end
 
--- Only Tab and Escape are swallowed; everything else passes through. Everything else passes
--- through untouched: an event tap that eats all input is one Lua error away
--- from a wedged keyboard.
+-- Activation goes through this tap rather than hs.hotkey because the Dock owns
+-- Cmd-Tab and will not yield it: hs.hotkey cannot even register the
+-- combination, since Carbon hotkeys lose to whatever the Dock has claimed.
+-- Event taps see keys before the Dock does, so one persistent tap both opens
+-- the overlay and drives it once open.
+--
+-- Only the activation combination, Tab and Escape are ever swallowed;
+-- everything else returns false and passes straight through. If this function
+-- throws, Hammerspoon lets the event through untouched, so a broken handler
+-- degrades to the system switcher rather than to a dead keyboard.
 local function onEvent(e)
   local types = hs.eventtap.event.types
+  local flags = e:getFlags()
 
-  -- Releasing the modifier is the only way to commit. There is deliberately no
-  -- accept key: your hand is already on the modifier, so letting go is both
-  -- faster and the gesture every other switcher on the platform teaches.
-  if e:getType() == types.flagsChanged then
-    if not e:getFlags()[cfg.modifier] then scope.commit() end
+  if canvas then
+    -- Releasing the modifier is the only way to commit. There is deliberately
+    -- no accept key: your hand is already on the modifier, so letting go is
+    -- both faster and the gesture every other switcher on the platform teaches.
+    if e:getType() == types.flagsChanged then
+      if not flags[cfg.modifier] then scope.commit() end
+      return false
+    end
+
+    local key = e:getKeyCode()
+    if matches(cfg.step, key) then
+      scope.step(flags.shift and -1 or 1); return true
+    elseif matches(cfg.cancel, key) then
+      scope.cancel(); return true
+    end
     return false
   end
 
-  local key = e:getKeyCode()
-
-  if matches(cfg.step, key) then
-    scope.step(e:getFlags().shift and -1 or 1); return true
-  elseif matches(cfg.cancel, key) then
-    scope.cancel(); return true
+  -- Overlay closed: the only thing worth reacting to is the activation combo.
+  if e:getType() == types.keyDown
+      and flags[cfg.modifier]
+      and e:getKeyCode() == hs.keycodes.map[cfg.activate] then
+    scope.show(flags.shift and -1 or 1)
+    return true
   end
 
   return false
@@ -218,18 +235,7 @@ function scope.show(delta)
   -- the two most recent windows the way Cmd-Tab does.
   idx = (delta > 0) and 2 or #wins
 
-  -- Hand the keyboard to the event tap. Carbon hotkeys fire ahead of event
-  -- taps, so leaving these enabled would advance the selection twice per press.
-  if scope.hotkeys then
-    for _, hk in ipairs(scope.hotkeys) do hk:disable() end
-  end
-
   draw()
-
-  tap = hs.eventtap.new(
-    { hs.eventtap.event.types.keyDown, hs.eventtap.event.types.flagsChanged },
-    onEvent
-  ):start()
 
   -- Safety net. If the modifier release is ever missed the overlay would sit
   -- there holding Tab and Escape forever.
@@ -242,15 +248,15 @@ end
 --------------------------------------------------------------------------------
 -- Bindings
 --------------------------------------------------------------------------------
--- Deliberately on Alt-Tab, not Cmd-Tab. If this config ever fails to load you
--- still have the system switcher to get around with. Once you trust it, swap
--- 'alt' for 'cmd' below.
+-- The tap is kept on the scope table rather than in a file local so that it
+-- always has a strong reference; an event tap that gets collected stops firing.
+scope.eventTap = hs.eventtap.new(
+  { hs.eventtap.event.types.keyDown, hs.eventtap.event.types.flagsChanged },
+  onEvent
+):start()
 
-scope.hotkeys = {
-  hs.hotkey.bind({ cfg.modifier },            cfg.activate, function() scope.show(1)  end),
-  hs.hotkey.bind({ cfg.modifier, 'shift' },   cfg.activate, function() scope.show(-1) end),
-}
-
+-- Reload stays an ordinary hotkey. It has to keep working even if the tap is
+-- the thing that broke.
 hs.hotkey.bind(cfg.reload[1], cfg.reload[2], hs.reload)
 
 --------------------------------------------------------------------------------
