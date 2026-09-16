@@ -74,12 +74,18 @@ Everything configurable lives in the `scope.config` table at the top of `init.lu
 - The window filter is built once at load time rather than per keypress. It subscribes to focus events to maintain most-recently-used ordering, so rebuilding it on every press would lose that history and add a visible stall.
 - `allowRoles = 'AXStandardWindow'` keeps helper windows out of the list. Several apps park invisible ones in every Space to render popups — Microsoft Teams' Notification Center keeps a 680×932 one titled literally "Window". They report subrole `AXDialog`, so restricting roles drops all of them at once rather than blacklisting apps by name as they turn up.
 - Native-fullscreen apps each occupy their own Space, so they correctly drop out of the list.
+- macOS native window tabbing — Terminal, Finder, Preview, anything that merges windows into a tab bar — gives every tab its own window but exposes only the frontmost one to Accessibility. A tab switch is therefore one window quietly replacing another, and it fires none of the created/destroyed events `hs.window.filter` maintains its cache from, so the cache keeps naming the tab that was up when it last heard anything. Left alone that showed the wrong title on the row and, on release, hauled that other tab in front of the one you actually left up. Scope reconciles the filter's list against each application's live window list before drawing, which costs ~10ms and leaves the most-recently-used ordering alone.
+- A tab group is always one row, never one row per tab. The tabs behind the front one do not exist as far as Accessibility is concerned, so there is nothing to list and no way to target them. Cycle those with the application's own tab shortcuts.
 - Electron apps (Slack, VS Code, Discord) are slow to answer Accessibility queries. If the switcher feels laggy, uncomment the `rejectApp` line.
 - The overlay is hand-rolled on `hs.canvas` rather than using `hs.window.switcher`. The built-in switcher lays itself out around window thumbnails, which need the Screen Recording permission, and it offers no way to cancel. Drawing icons and titles instead means Accessibility is the only permission required.
 - One persistent event tap both opens the overlay and drives it. It swallows only the activation combination, <kbd>Tab</kbd> and <kbd>esc</kbd>; every other key returns untouched. If the handler throws, Hammerspoon passes the event through, so a broken config degrades to the system switcher rather than to a dead keyboard. A watchdog tears the overlay down after 10s in case a modifier release is ever missed.
 - Reload stays an ordinary `hs.hotkey` rather than going through the tap, so it keeps working when the tap is the thing that broke.
 
 ## Changelog
+
+### 0.0.3 — 2026-09-16
+
+Switching back to a tabbed application now lands on the tab you left up. Under macOS native window tabbing each tab is its own window and only the frontmost is visible to Accessibility, so a tab switch swapped the window out from under the switcher without any event to notice it by: the row carried a stale title, and releasing the modifier pulled that stale tab to the front. The window list is now reconciled against each application's live windows before the overlay is drawn.
 
 ### 0.0.2 — 2026-09-16
 

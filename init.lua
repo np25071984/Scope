@@ -32,6 +32,79 @@ spaceFilter = hs.window.filter.new()
 -- spaceFilter:rejectApp('Slack')
 
 --------------------------------------------------------------------------------
+-- Keeping the list honest about tabs
+--------------------------------------------------------------------------------
+-- macOS native window tabbing gives every tab its own window and exposes only
+-- the frontmost one to Accessibility; the tabs behind it are absent from the
+-- application's window list entirely. Switching tabs therefore swaps one
+-- window for another without emitting the created/destroyed notifications that
+-- hs.window.filter maintains its cache from, so the cache goes on naming the
+-- tab that happened to be up when it last heard anything.
+--
+-- Terminal is where this shows: leave it on one tab, switch away, come back,
+-- and another tab is in front, because the row scope committed to was a window
+-- that is no longer on screen. The row is mislabelled for the same reason.
+--
+-- Asking each application directly always reflects the tab that is up now. It
+-- costs ~10ms for a Space's worth of apps against ~100ms to rebuild the filter,
+-- and unlike a rebuild it leaves the most-recently-used ordering alone.
+
+local function onCurrentSpace(win, space)
+  for _, s in ipairs(hs.spaces.windowSpaces(win) or {}) do
+    if s == space then return true end
+  end
+  return false
+end
+
+-- A swapped-out tab still answers Accessibility queries -- it reports itself
+-- visible, standard and correctly framed -- so the one thing that gives it
+-- away is that its own application has stopped listing it.
+local function reconcile(list)
+  local byPid = {}
+  for _, w in ipairs(list) do
+    local app = w:application()
+    local pid = app and app:pid()
+    if pid and not byPid[pid] then byPid[pid] = app:allWindows() end
+  end
+
+  local live = {}
+  for _, windows in pairs(byPid) do
+    for _, w in ipairs(windows) do live[w:id()] = true end
+  end
+
+  -- Windows the list already accounts for, so that a stale entry is never
+  -- replaced by a window sitting elsewhere in the same list.
+  local claimed = {}
+  for _, w in ipairs(list) do
+    if live[w:id()] then claimed[w:id()] = true end
+  end
+
+  local space, result = hs.spaces.focusedSpace(), {}
+  for _, w in ipairs(list) do
+    if live[w:id()] then
+      result[#result + 1] = w
+    else
+      -- Drop this app's on-screen tab into the stale entry's slot, so the row
+      -- keeps its place in the most-recently-used order. Candidates are held
+      -- to the same standard-window and current-Space rules as the filter
+      -- itself, since :isWindowAllowed consults the very cache that is stale.
+      local app = w:application()
+      for _, candidate in ipairs(app and byPid[app:pid()] or {}) do
+        if not claimed[candidate:id()]
+            and candidate:isStandard()
+            and onCurrentSpace(candidate, space) then
+          claimed[candidate:id()] = true
+          result[#result + 1] = candidate
+          break
+        end
+      end
+    end
+  end
+
+  return result
+end
+
+--------------------------------------------------------------------------------
 -- Switcher overlay
 --------------------------------------------------------------------------------
 -- Hand-rolled rather than hs.window.switcher, which lays itself out around
@@ -228,7 +301,7 @@ end
 function scope.show(delta)
   if canvas then scope.step(delta); return end
 
-  wins = spaceFilter:getWindows(hs.window.filter.sortByFocusedLast)
+  wins = reconcile(spaceFilter:getWindows(hs.window.filter.sortByFocusedLast))
   if #wins < 2 then return end
 
   -- Start on the next window, so a quick press-and-release toggles between
