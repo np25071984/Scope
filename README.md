@@ -81,7 +81,11 @@ Everything configurable lives in the `scope.config` table at the top of `init.lu
 
 ## Changelog
 
-### 0.0.1
+### 0.0.2 — 2026-09-16
+
+The default modifier is now <kbd>⌘</kbd>, so scope replaces the system application switcher rather than sitting beside it. Activation moved from `hs.hotkey` to the event tap that already drove the open overlay: the Dock owns <kbd>⌘</kbd> <kbd>Tab</kbd> and refuses to register it as a hotkey, and it is not a shortcut System Settings can disable, but event taps see keys before the Dock does. Set `modifier = 'alt'` to keep the system switcher and run scope alongside it.
+
+### 0.0.1 — 2026-09-15
 
 First release. <kbd>⌥</kbd> <kbd>Tab</kbd> cycles windows of the current Space in a canvas overlay of app icons and titles, <kbd>esc</kbd> dismisses it, and releasing <kbd>⌥</kbd> switches. Accessibility is the only permission required, and Hammerspoon starts at login.
 
