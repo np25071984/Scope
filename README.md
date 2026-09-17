@@ -22,7 +22,7 @@ Replaces the switcher with one that lists **windows** (not apps) from the **curr
 
 Hold <kbd>⌘</kbd>, tab to the window you want, release to select. Press <kbd>esc</kbd> while still holding <kbd>⌘</kbd> to back out and stay where you are.
 
-This replaces the system application switcher outright, so <kbd>⌘</kbd> <kbd>Tab</kbd> no longer reaches windows in other Spaces. Set `modifier = 'alt'` in `init.lua` to leave the system switcher alone and run scope alongside it.
+This replaces the system application switcher outright, so <kbd>⌘</kbd> <kbd>Tab</kbd> no longer reaches windows in other Spaces. Set `modifier = 'alt'` in `scope.lua` to leave the system switcher alone and run scope alongside it.
 
 To cycle windows of the current app only, use the native <kbd>⌘</kbd> <kbd>`</kbd> — macOS already scopes that to the frontmost app and to the current Space, so scope does not rebind it.
 
@@ -35,9 +35,11 @@ cd scope && ./install.sh
 
 Clone it wherever you keep source. `install.sh` resolves its own directory, so the symlink it creates points at whatever path you picked and nothing depends on the location — you can move the clone later and re-run it. If you have no preference, `~/.hammerspoon/scope` keeps the repo beside the config that loads it, in a directory that already exists once Hammerspoon is installed.
 
-`install.sh` installs Hammerspoon if it is missing, links `init.lua` into `~/.hammerspoon` (backing up anything already there), and starts or reloads it.
+`install.sh` installs Hammerspoon if it is missing, links `scope.lua` into `~/.hammerspoon`, adds a `require('scope')` line to `~/.hammerspoon/init.lua`, and starts or reloads it.
 
-The link means the clone has to stay where it is — deleting it leaves `~/.hammerspoon/init.lua` dangling and Hammerspoon with no config. In exchange, edits in the clone take effect on reload and `git pull` updates the running config. Run `./install.sh --copy` instead to copy the file, after which the clone can be deleted; updating then means cloning again.
+scope is a module rather than the config itself, so it sits beside whatever you already run: the installer appends a fenced block to your `init.lua` instead of moving it out of the way, and creates that file only if it is not there. Running it twice adds nothing the second time.
+
+The link means the clone has to stay where it is — deleting it leaves `~/.hammerspoon/scope.lua` dangling and the `require` failing on load. In exchange, edits in the clone take effect on reload and `git pull` updates the running config. Run `./install.sh --copy` instead to copy the file, after which the clone can be deleted; updating then means cloning again.
 
 It uses Homebrew when Homebrew is present, because that keeps `brew upgrade` and `brew uninstall` working rather than leaving an app brew knows nothing about. Without Homebrew it falls back to the project's GitHub releases, so a missing package manager is never a blocker. Force the fallback with `./install.sh --no-brew`.
 
@@ -45,16 +47,29 @@ Then grant Hammerspoon **Accessibility** permission: System Settings → Privacy
 
 ### Autoload on startup
 
-Both halves are handled, and neither needs a manual step:
+- **The module** is loaded by Hammerspoon through `~/.hammerspoon/init.lua`, which it reads on every launch. The symlink means edits in this repo take effect on reload.
+- **Hammerspoon itself** registers as a macOS login item when something calls `hs.autoLaunch(true)`. That is a Hammerspoon-wide preference rather than scope's to set, so `scope.lua` does not touch it. An `init.lua` written by `install.sh` contains the call, commented for what it does; an `init.lua` that already existed is left to make its own call, and the installer says so rather than editing preferences you chose.
 
-- **The config** is loaded by Hammerspoon from `~/.hammerspoon/init.lua` on every launch. The symlink means edits in this repo take effect on reload.
-- **Hammerspoon itself** registers as a macOS login item, because `init.lua` calls `hs.autoLaunch(true)`. That is declared in the config rather than ticked in the Preferences window so the setting travels with the repo.
+Verify with `hs -c 'hs.autoLaunch()'`, which should print `true`. If it prints `false`, add `hs.autoLaunch(true)` to your `init.lua`.
 
-Verify with `hs -c 'hs.autoLaunch()'`, which should print `true`.
+## Uninstall
+
+```bash
+./uninstall.sh          # remove scope, leave Hammerspoon installed
+./uninstall.sh --all    # uninstall Hammerspoon and delete its data too
+```
+
+`uninstall.sh` clears the login item, removes `~/.hammerspoon/scope.lua`, and takes the fenced block back out of `~/.hammerspoon/init.lua` — deleting that file too if the block was all it held, and leaving it otherwise. The fence is what makes that exact: everything between `-- scope:` and `-- end scope` goes, nothing else does, and a file with an opening marker but no closing one falls back to removing loose `require('scope')` lines rather than swallowing the remainder. It removes the module only when it is this repo's symlink or an unmodified copy of it, so anything you wrote yourself stays where it is.
+
+The login item is the part that is easy to miss by hand. `hs.autoLaunch(true)` writes a macOS setting rather than a line in the config, so deleting `scope.lua` on its own leaves Hammerspoon launching at every login with nothing to load. The script clears it first, while Hammerspoon is still around to clear it.
+
+`--all` uninstalls the app as well — through Homebrew when Homebrew installed it, so `brew` is not left tracking something that is gone — and deletes the preferences, caches and saved-state files. It keeps `~/.hammerspoon` when a config it did not write is still sitting there. One step is left to you afterwards, because macOS will not let a script do it: remove Hammerspoon from System Settings → Privacy & Security → Accessibility. That entry outlives the app, and a stale one silently re-authorises whatever is installed at the same path later.
+
+Neither mode deletes the clone; the last line of output tells you where it is.
 
 ## Configuration
 
-Everything configurable lives in the `scope.config` table at the top of `init.lua`. Edit it, then press <kbd>⌥</kbd> <kbd>⇧</kbd> <kbd>R</kbd> to reload. That one is still <kbd>⌥</kbd>-based on purpose, so it does not move when you change `modifier`.
+Everything configurable lives in the `scope.config` table at the top of `scope.lua`. Edit it, then press <kbd>⌥</kbd> <kbd>⇧</kbd> <kbd>R</kbd> to reload. That one is still <kbd>⌥</kbd>-based on purpose, so it does not move when you change `modifier`.
 
 | Field | Meaning |
 |---|---|
@@ -80,8 +95,17 @@ Everything configurable lives in the `scope.config` table at the top of `init.lu
 - The overlay is hand-rolled on `hs.canvas` rather than using `hs.window.switcher`. The built-in switcher lays itself out around window thumbnails, which need the Screen Recording permission, and it offers no way to cancel. Drawing icons and titles instead means Accessibility is the only permission required.
 - One persistent event tap both opens the overlay and drives it. It swallows only the activation combination, <kbd>Tab</kbd> and <kbd>esc</kbd>; every other key returns untouched. If the handler throws, Hammerspoon passes the event through, so a broken config degrades to the system switcher rather than to a dead keyboard. A watchdog tears the overlay down after 10s in case a modifier release is ever missed.
 - Reload stays an ordinary `hs.hotkey` rather than going through the tap, so it keeps working when the tap is the thing that broke.
+- `scope.lua` defines no globals and sets no Hammerspoon-wide preferences. It is required into somebody else's `init.lua`, where a stray global named `scope` or `spaceFilter` would collide silently, and where flipping `hs.menuIcon` or `hs.automaticallyCheckForUpdates` would override a deliberate choice. The module table is returned instead; `package.loaded` then holds the reference that keeps the event tap and the reload hotkey from being collected, and `package.loaded.scope.filter` is the handle for poking at the window filter from the console.
 
 ## Changelog
+
+### 0.0.4 — 2026-09-17
+
+scope is now a module at `~/.hammerspoon/scope.lua`, loaded by a fenced `require('scope')` block the installer appends to your `init.lua`, rather than being `init.lua` itself. Installing no longer moves an existing config aside, and `install.sh` migrates a 0.0.3 install in place, restoring the config it had backed up.
+
+Following from that, the module now behaves like a guest: no globals, no `hs.autoLaunch`/`hs.menuIcon`/`hs.automaticallyCheckForUpdates` imposed on the host config, and no alert on every reload. Those preferences are written into an `init.lua` that `install.sh` creates, where they are visible and editable, and left alone in one that already existed.
+
+Added `uninstall.sh`, which reverses all of it and optionally removes Hammerspoon as well.
 
 ### 0.0.3 — 2026-09-16
 
