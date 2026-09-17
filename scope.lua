@@ -15,7 +15,7 @@ local log = hs.logger.new('scope', 'info')
 -- subscribes to focus events to maintain most-recently-used ordering; building
 -- it per keypress would both lose that history and stall for ~100ms.
 
-spaceFilter = hs.window.filter.new()
+local spaceFilter = hs.window.filter.new()
   :setCurrentSpace(true)                               -- the whole point: current Space only
   :setDefaultFilter{ allowRoles = 'AXStandardWindow' } -- real windows only
 
@@ -110,8 +110,15 @@ end
 -- Hand-rolled rather than hs.window.switcher, which lays itself out around
 -- window thumbnails and offers no way to cancel. This draws a vertical list of
 -- app icons and titles, and supports Esc to dismiss without switching.
+--
+-- Everything here is local to this file. scope is required into somebody
+-- else's init.lua, and a stray global named `scope` or `spaceFilter` in the
+-- shared Lua state is exactly the kind of collision that is silent and then
+-- baffling. The module table is returned at the bottom, which is also what
+-- keeps it -- and through it the event tap -- alive: package.loaded holds the
+-- only reference once the chunk has run.
 
-scope = {}
+local scope = {}
 
 -- Everything configurable lives here. Reload with the reload hotkey (or
 -- `hs -c 'hs.reload()'`) to pick up changes.
@@ -329,19 +336,25 @@ scope.eventTap = hs.eventtap.new(
 ):start()
 
 -- Reload stays an ordinary hotkey. It has to keep working even if the tap is
--- the thing that broke.
-hs.hotkey.bind(cfg.reload[1], cfg.reload[2], hs.reload)
+-- the thing that broke. Held on the table for the same reason as the tap.
+scope.reloadHotkey = hs.hotkey.bind(cfg.reload[1], cfg.reload[2], hs.reload)
+
+-- A handle to poke at from the console: package.loaded.scope.filter
+scope.filter = spaceFilter
 
 --------------------------------------------------------------------------------
 -- Startup
 --------------------------------------------------------------------------------
--- Declared here rather than ticked in Hammerspoon's Preferences window so the
--- setting travels with the repo. Hammerspoon registers itself as a macOS login
--- item; the Lua config itself needs no autoload step, since Hammerspoon reads
--- ~/.hammerspoon/init.lua on every launch.
-hs.autoLaunch(true)
-hs.menuIcon(true)
-hs.automaticallyCheckForUpdates(true)
-
-hs.alert.show('scope: config loaded')
+-- hs.autoLaunch, hs.menuIcon and hs.automaticallyCheckForUpdates are
+-- Hammerspoon-wide preferences, not scope's to decide for the config that
+-- requires it. install.sh writes them into a freshly created init.lua, where
+-- they are visible and editable; an init.lua that already existed is left to
+-- make its own call. autoLaunch is the one that matters here, since it is what
+-- brings scope back after a reboot.
+--
+-- No alert on load either, for the same reason: a module has no business
+-- interrupting its host on every reload. The log line is enough, and
+-- `hs -c 'package.loaded.scope ~= nil'` answers the same question on demand.
 log.i('scope loaded; ' .. #spaceFilter:getWindows() .. ' windows in current space')
+
+return scope
