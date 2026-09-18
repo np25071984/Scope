@@ -139,6 +139,11 @@ scope.config = {
   step   = { 'tab' },
   cancel = { 'escape' },
 
+  -- Pointer support while the overlay is open: hovering a row selects it,
+  -- clicking one switches to it, clicking anywhere else dismisses. The
+  -- modifier stays held throughout, exactly as it does for the keyboard.
+  mouse = true,
+
   -- Standalone hotkeys, given as { modifiers, key }.
   reload = { { 'alt', 'shift' }, 'r' },
 
@@ -167,13 +172,43 @@ local canvas, wins, idx, watchdog = nil, {}, 1, nil
 
 local function rowY(i) return PAD + (i - 1) * ROW_H end
 
+-- The inverse of rowY: which row is under a point in screen coordinates, or
+-- nil when the point is outside the overlay altogether -- including the
+-- padding bands above the first row and below the last. hs.canvas:frame() and
+-- hs.eventtap.event:location() are both in Hammerspoon's flipped, top-left
+-- origin screen space, so the two compare directly on every display.
+local function rowAt(point)
+  if not canvas then return nil end
+  local f = canvas:frame()
+  if point.x < f.x or point.x >= f.x + f.w then return nil end
+  if point.y < f.y or point.y >= f.y + f.h then return nil end
+  local i = math.floor((point.y - f.y - PAD) / ROW_H) + 1
+  if i < 1 or i > #wins then return nil end
+  return i
+end
+
 local function teardown()
   if watchdog then watchdog:stop(); watchdog = nil end
   if canvas   then canvas:delete(); canvas   = nil end
+  if scope.mouseTap then scope.mouseTap:stop() end
 end
 
 function scope.cancel()
   teardown()
+end
+
+-- Safety net, rearmed on every interaction. If the modifier release is ever
+-- missed the overlay would sit there holding Tab and Escape forever; the timer
+-- bounds how long it can do that. Rearming rather than running down from the
+-- moment it opened is what makes the overlay usable with the mouse, where
+-- picking a row takes longer than a keystroke.
+local function armWatchdog()
+  if watchdog then watchdog:stop(); watchdog = nil end
+  if not canvas then return end
+  watchdog = hs.timer.doAfter(10, function()
+    log.w('switcher watchdog fired; tearing down')
+    scope.cancel()
+  end)
 end
 
 function scope.isOpen()
@@ -186,6 +221,11 @@ function scope.commit()
   if target then target:focus() end
 end
 
+function scope.commitTo(i)
+  idx = i
+  scope.commit()
+end
+
 local function highlight()
   if not canvas then return end
   canvas['selection'].frame = {
@@ -193,10 +233,20 @@ local function highlight()
   }
 end
 
+-- The one place the selection moves. Both the keyboard and the pointer come
+-- through here, so the highlight is only redrawn when the row actually
+-- changes -- hover fires a hundred times a second and would otherwise repaint
+-- on every one of them.
+function scope.select(i)
+  if i == idx then return end
+  idx = i
+  highlight()
+  armWatchdog()
+end
+
 function scope.step(delta)
   if #wins == 0 then return end
-  idx = ((idx - 1 + delta) % #wins) + 1
-  highlight()
+  scope.select(((idx - 1 + delta) % #wins) + 1)
 end
 
 local function draw()
@@ -253,6 +303,8 @@ local function draw()
 
   highlight()
   canvas:show()
+
+  if cfg.mouse then scope.mouseTap:start() end
 end
 
 local function matches(names, keycode)
@@ -305,6 +357,44 @@ local function onEvent(e)
   return false
 end
 
+-- The pointer gets its own tap, and its own handler. Its own tap because
+-- mouseMoved fires continuously and this one only runs while the overlay is
+-- up, so a switcher that is on screen for a second at a time costs nothing the
+-- rest of the day. Its own handler because onEvent reads a keycode off every
+-- event once the overlay is open, which a mouse event does not carry.
+--
+-- hs.canvas has mouse tracking of its own, and it is the wrong tool here:
+-- clickActivating defaults to true, so a click would bring Hammerspoon forward
+-- and take the focus we are about to hand to the target window, and turning it
+-- off changes the canvas's AXSubrole -- which this module would then have to
+-- keep out of its own window filter. Hit-testing the frame in Lua leaves the
+-- canvas transparent to both the mouse and Accessibility.
+local function onMouse(e)
+  local types = hs.eventtap.event.types
+  local t = e:getType()
+
+  -- Movement is never swallowed; returning true here would freeze the cursor.
+  if t == types.mouseMoved or t == types.leftMouseDragged then
+    local i = rowAt(e:location())
+    if i then scope.select(i) end   -- off the overlay, the selection stays put
+    return false
+  end
+
+  -- Both halves of the click are swallowed, so neither reaches the window
+  -- underneath -- which, the overlay being a popup over somebody else's
+  -- window, is nearly always something you did not mean to click. The decision
+  -- waits for the release, the way menus and the system switcher do.
+  if t == types.leftMouseDown then return true end
+
+  if t == types.leftMouseUp then
+    local i = rowAt(e:location())
+    if i then scope.commitTo(i) else scope.cancel() end
+    return true
+  end
+
+  return false
+end
+
 function scope.show(delta)
   if canvas then scope.step(delta); return end
 
@@ -316,20 +406,26 @@ function scope.show(delta)
   idx = (delta > 0) and 2 or #wins
 
   draw()
-
-  -- Safety net. If the modifier release is ever missed the overlay would sit
-  -- there holding Tab and Escape forever.
-  watchdog = hs.timer.doAfter(10, function()
-    log.w('switcher watchdog fired; tearing down')
-    scope.cancel()
-  end)
+  armWatchdog()
 end
 
 --------------------------------------------------------------------------------
 -- Bindings
 --------------------------------------------------------------------------------
--- The tap is kept on the scope table rather than in a file local so that it
--- always has a strong reference; an event tap that gets collected stops firing.
+-- Both taps are kept on the scope table rather than in file locals so that
+-- they always have a strong reference; an event tap that gets collected stops
+-- firing.
+--
+-- The mouse tap is built first and started by draw, not here: it only needs to
+-- run while there is an overlay to point at, and draw is reached through the
+-- key tap below, which must not find it missing.
+scope.mouseTap = hs.eventtap.new({
+  hs.eventtap.event.types.mouseMoved,
+  hs.eventtap.event.types.leftMouseDragged,
+  hs.eventtap.event.types.leftMouseDown,
+  hs.eventtap.event.types.leftMouseUp,
+}, onMouse)
+
 scope.eventTap = hs.eventtap.new(
   { hs.eventtap.event.types.keyDown, hs.eventtap.event.types.flagsChanged },
   onEvent

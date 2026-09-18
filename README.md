@@ -1,6 +1,6 @@
 # Scope
 
-Keyboard-only window switching on macOS, scoped to the current Space.
+Keyboard-first window switching on macOS, scoped to the current Space.
 
 ## The problem
 
@@ -8,7 +8,7 @@ macOS <kbd>⌘</kbd> <kbd>Tab</kbd> switches *applications* across *all* Spaces.
 
 ## What this does
 
-Replaces the switcher with one that lists **windows** (not apps) from the **current Space only**, driven entirely from the keyboard.
+Replaces the switcher with one that lists **windows** (not apps) from the **current Space only**, driven from the keyboard, with the pointer there when you would rather aim at the window you want than count Tabs to it.
 
 | Shortcut | Action |
 |---|---|
@@ -16,11 +16,16 @@ Replaces the switcher with one that lists **windows** (not apps) from the **curr
 | <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>Tab</kbd> | previous window |
 | <kbd>esc</kbd> | dismiss without switching |
 | release <kbd>⌘</kbd> | switch to the selected window |
+| hover a row | select it, without switching yet |
+| click a row | switch to that window |
+| click anywhere else | dismiss without switching |
 | <kbd>⌥</kbd> <kbd>⇧</kbd> <kbd>R</kbd> | reload this config |
 
 > <kbd>⌘</kbd> is the **Command** key, <kbd>⇧</kbd> is **Shift**, and <kbd>⌥</kbd> is **Option** — the one between Control and Command, printed `alt` on some keyboards.
 
 Hold <kbd>⌘</kbd>, tab to the window you want, release to select. Press <kbd>esc</kbd> while still holding <kbd>⌘</kbd> to back out and stay where you are.
+
+The pointer works the same way, with <kbd>⌘</kbd> still held: hovering a row selects it, so releasing <kbd>⌘</kbd> over a row switches to that one, and clicking it switches without waiting for the release. A click anywhere off the overlay dismisses it. Nothing about the overlay outlives the modifier — it is the same gesture either way, which is also how the system switcher behaves. Set `mouse = false` to turn the pointer off entirely.
 
 This replaces the system application switcher outright, so <kbd>⌘</kbd> <kbd>Tab</kbd> no longer reaches windows in other Spaces. Set `modifier = 'alt'` in `scope.lua` to leave the system switcher alone and run scope alongside it.
 
@@ -78,6 +83,7 @@ Everything configurable lives in the `scope.config` table at the top of `scope.l
 | `step` | keys that move the selection while the overlay is open |
 | `cancel` | keys that dismiss without switching |
 | `reload` | standalone hotkey, as `{ modifiers, key }` |
+| `mouse` | whether the pointer selects and clicks rows while the overlay is open |
 | `rowHeight`, `iconSize`, `padding`, `width`, `radius` | appearance |
 
 `modifier` drives both the activation hotkeys and the release-to-select detection, so changing it in one place is enough. Key names come from `hs.keycodes.map`; run `hs -c 'hs.inspect(hs.keycodes.map)'` for the full list.
@@ -93,11 +99,19 @@ Everything configurable lives in the `scope.config` table at the top of `scope.l
 - A tab group is always one row, never one row per tab. The tabs behind the front one do not exist as far as Accessibility is concerned, so there is nothing to list and no way to target them. Cycle those with the application's own tab shortcuts.
 - Electron apps (Slack, VS Code, Discord) are slow to answer Accessibility queries. If the switcher feels laggy, uncomment the `rejectApp` line.
 - The overlay is hand-rolled on `hs.canvas` rather than using `hs.window.switcher`. The built-in switcher lays itself out around window thumbnails, which need the Screen Recording permission, and it offers no way to cancel. Drawing icons and titles instead means Accessibility is the only permission required.
-- One persistent event tap both opens the overlay and drives it. It swallows only the activation combination, <kbd>Tab</kbd> and <kbd>esc</kbd>; every other key returns untouched. If the handler throws, Hammerspoon passes the event through, so a broken config degrades to the system switcher rather than to a dead keyboard. A watchdog tears the overlay down after 10s in case a modifier release is ever missed.
+- One persistent event tap both opens the overlay and drives it. It swallows only the activation combination, <kbd>Tab</kbd> and <kbd>esc</kbd>; every other key returns untouched. If the handler throws, Hammerspoon passes the event through, so a broken config degrades to the system switcher rather than to a dead keyboard. A watchdog tears the overlay down after 10s without input, in case a modifier release is ever missed; every selection rearms it, so a slow decision with the mouse is not cut short.
+- The pointer gets a second tap, started when the overlay is drawn and stopped when it goes away. `mouseMoved` fires continuously, and a switcher that is on screen a second at a time has no business running a callback on every mouse move for the rest of the day. Both halves of a click are swallowed, so neither reaches the window underneath — the overlay sits over somebody else's window, where a click is nearly always one you did not mean to make.
+- Rows are hit-tested arithmetically against the canvas frame rather than through `hs.canvas`'s own mouse tracking. That tracking needs `clickActivating` to be off, or a click brings Hammerspoon forward and takes the focus that is about to go to the target window; turning it off changes the canvas's `AXSubrole`, which this module would then have to keep out of its own window filter. Hit-testing in Lua leaves the canvas invisible to the mouse and to Accessibility alike.
 - Reload stays an ordinary `hs.hotkey` rather than going through the tap, so it keeps working when the tap is the thing that broke.
-- `scope.lua` defines no globals and sets no Hammerspoon-wide preferences. It is required into somebody else's `init.lua`, where a stray global named `scope` or `spaceFilter` would collide silently, and where flipping `hs.menuIcon` or `hs.automaticallyCheckForUpdates` would override a deliberate choice. The module table is returned instead; `package.loaded` then holds the reference that keeps the event tap and the reload hotkey from being collected, and `package.loaded.scope.filter` is the handle for poking at the window filter from the console.
+- `scope.lua` defines no globals and sets no Hammerspoon-wide preferences. It is required into somebody else's `init.lua`, where a stray global named `scope` or `spaceFilter` would collide silently, and where flipping `hs.menuIcon` or `hs.automaticallyCheckForUpdates` would override a deliberate choice. The module table is returned instead; `package.loaded` then holds the reference that keeps the two event taps and the reload hotkey from being collected, and `package.loaded.scope.filter` is the handle for poking at the window filter from the console.
 
 ## Changelog
+
+### 0.0.5 — 2026-09-17
+
+The overlay now answers the mouse. Hovering a row selects it, clicking one switches to that window, and clicking anywhere else dismisses without switching — all with <kbd>⌘</kbd> still held, so the pointer is an alternative to counting Tabs rather than a second mode with its own rules. Set `mouse = false` to leave it keyboard-only.
+
+The watchdog is now rearmed on every selection rather than running down from the moment the overlay opened, so picking a row with the mouse is not cut off after ten seconds.
 
 ### 0.0.4 — 2026-09-17
 
