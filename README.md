@@ -10,6 +10,8 @@ macOS <kbd>⌘</kbd> <kbd>Tab</kbd> switches *applications* across *all* Spaces.
 
 Replaces the switcher with one that lists **windows** (not apps) from the **current Space only**, driven from the keyboard, with the pointer there when you would rather aim at the window you want than count Tabs to it.
 
+![The scope overlay open over a Terminal window, listing the windows of the current Space with the selected row highlighted](docs/screenshot.png)
+
 | Shortcut | Action |
 |---|---|
 | <kbd>⌘</kbd> <kbd>Tab</kbd> | next window in the current Space |
@@ -107,7 +109,7 @@ Everything configurable lives in the `scope.config` table at the top of `scope.l
 
 ## Changelog
 
-### 0.0.5 — 2026-09-17
+### 1.0.0 — 2026-09-18
 
 The overlay now answers the mouse. Hovering a row selects it, clicking one switches to that window, and clicking anywhere else dismisses without switching — all with <kbd>⌘</kbd> still held, so the pointer is an alternative to counting Tabs rather than a second mode with its own rules. Set `mouse = false` to leave it keyboard-only.
 
