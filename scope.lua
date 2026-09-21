@@ -105,6 +105,49 @@ local function reconcile(list)
 end
 
 --------------------------------------------------------------------------------
+-- Keeping the list honest about which window is current
+--------------------------------------------------------------------------------
+-- The filter's most-recently-used order is a cache fed by focus-change
+-- notifications, and scope.show can read it before the notification for the
+-- switch that just happened has been processed -- which is exactly the case
+-- the quick toggle exists for, a second press straight after the first. The
+-- cache then still ranks the *previous* window first, so the slot scope.show
+-- skips as "the one I am already on" is the one it was supposed to land on,
+-- and reaching it takes a lap through the whole list instead.
+--
+-- hs.window.focusedWindow() is a live Accessibility query rather than a
+-- cache, so it settles the disagreement. Moving it to the front and leaving
+-- everything else in place repairs precisely the one-event lag the race
+-- produces: [Firefox, Terminal, Code] with Terminal focused becomes
+-- [Terminal, Firefox, Code], which is the true order rather than a patched-up
+-- first slot.
+--
+-- This runs after reconcile, not before: reconcile can swap a stale tab entry
+-- for a different window object, and matching against an entry that is then
+-- replaced would put the wrong window in front. The focused window is by
+-- definition live, so reconcile passes it through untouched.
+local function promoteFocused(list)
+  local focused = hs.window.focusedWindow()
+  if not focused then return list end
+
+  local at
+  for i, w in ipairs(list) do
+    if w:id() == focused:id() then at = i; break end
+  end
+
+  -- Absent from the list -- a dialog, another Space, an app with no standard
+  -- window -- means there is nothing to correct against; take the cache's word.
+  if not at or at == 1 then return list end
+
+  local result = { focused }
+  for i, w in ipairs(list) do
+    if i ~= at then result[#result + 1] = w end
+  end
+
+  return result
+end
+
+--------------------------------------------------------------------------------
 -- Switcher overlay
 --------------------------------------------------------------------------------
 -- Hand-rolled rather than hs.window.switcher, which lays itself out around
@@ -398,7 +441,7 @@ end
 function scope.show(delta)
   if canvas then scope.step(delta); return end
 
-  wins = reconcile(spaceFilter:getWindows(hs.window.filter.sortByFocusedLast))
+  wins = promoteFocused(reconcile(spaceFilter:getWindows(hs.window.filter.sortByFocusedLast)))
   if #wins < 2 then return end
 
   -- Start on the next window, so a quick press-and-release toggles between

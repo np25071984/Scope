@@ -95,6 +95,7 @@ Everything configurable lives in the `scope.config` table at the top of `scope.l
 ## Notes
 
 - The window filter is built once at load time rather than per keypress. It subscribes to focus events to maintain most-recently-used ordering, so rebuilding it on every press would lose that history and add a visible stall.
+- That most-recently-used order is a cache fed by focus-change notifications, so it can lag the truth by one switch when the overlay is opened immediately after a switch — the very case the quick toggle exists for. The list is cross-checked against `hs.window.focusedWindow()`, a live Accessibility query, and the focused window moved to the front before the overlay is drawn, which is enough to repair a one-event lag exactly.
 - `allowRoles = 'AXStandardWindow'` keeps helper windows out of the list. Several apps park invisible ones in every Space to render popups — Microsoft Teams' Notification Center keeps a 680×932 one titled literally "Window". They report subrole `AXDialog`, so restricting roles drops all of them at once rather than blacklisting apps by name as they turn up.
 - Native-fullscreen apps each occupy their own Space, so they correctly drop out of the list.
 - macOS native window tabbing — Terminal, Finder, Preview, anything that merges windows into a tab bar — gives every tab its own window but exposes only the frontmost one to Accessibility. A tab switch is therefore one window quietly replacing another, and it fires none of the created/destroyed events `hs.window.filter` maintains its cache from, so the cache keeps naming the tab that was up when it last heard anything. Left alone that showed the wrong title on the row and, on release, hauled that other tab in front of the one you actually left up. Scope reconciles the filter's list against each application's live window list before drawing, which costs ~10ms and leaves the most-recently-used ordering alone.
@@ -108,6 +109,10 @@ Everything configurable lives in the `scope.config` table at the top of `scope.l
 - `scope.lua` defines no globals and sets no Hammerspoon-wide preferences. It is required into somebody else's `init.lua`, where a stray global named `scope` or `spaceFilter` would collide silently, and where flipping `hs.menuIcon` or `hs.automaticallyCheckForUpdates` would override a deliberate choice. The module table is returned instead; `package.loaded` then holds the reference that keeps the two event taps and the reload hotkey from being collected, and `package.loaded.scope.filter` is the handle for poking at the window filter from the console.
 
 ## Changelog
+
+### 1.1.0 — 2026-09-21
+
+A quick press-and-release now reliably toggles back to the window you just came from. The filter's most-recently-used order is a cache fed by focus-change notifications, and a second press straight after the first could read it before the notification for that first switch had been processed — leaving the window you were on ranked second and the one you wanted first, so the overlay skipped past it and reaching it took a lap through the whole list. The list is now checked against `hs.window.focusedWindow()`, a live query rather than a cache, and the focused window moved to the front before the overlay is drawn.
 
 ### 1.0.0 — 2026-09-18
 
