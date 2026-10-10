@@ -9,6 +9,33 @@ require('hs.ipc')  -- enables the `hs -c "..."` command line bridge
 local log = hs.logger.new('scope', 'info')
 
 --------------------------------------------------------------------------------
+-- Tracing
+--------------------------------------------------------------------------------
+-- The list the overlay shows is the filter's cache run through three repairs
+-- (ghosts, reconcile, promoteFocused), any of which can move a row. When the
+-- order comes out wrong, the trace shows each stage's list and every decision
+-- that fed it, so the stage that did it can be read straight off the console.
+--
+-- Off by default; it costs an Accessibility query per window per stage. Turn
+-- it on without reloading, so the history leading up to a bad order survives:
+--   hs -c "package.loaded.scope.log.setLogLevel('debug')"
+-- and back off with 'info'. Output lands in the Hammerspoon console.
+
+local function tracing() return log.getLogLevel() >= 4 end
+
+-- Never throws: a ghost is a destroyed window, and tracing must not be the
+-- thing that breaks the switcher.
+local function describe(w)
+  local ok, s = pcall(function()
+    local app, title = w:application(), w:title() or ''
+    local cut = utf8.offset(title, 41)
+    if cut then title = title:sub(1, cut - 1) .. '…' end
+    return string.format('%s %s "%s"', w:id(), app and app:name() or '?', title)
+  end)
+  return ok and s or ('<' .. tostring(s) .. '>')
+end
+
+--------------------------------------------------------------------------------
 -- Window filter
 --------------------------------------------------------------------------------
 -- Built once at load time, NOT inside the hotkey callback. The filter
@@ -59,6 +86,9 @@ end
 -- A swapped-out tab still answers Accessibility queries -- it reports itself
 -- visible, standard and correctly framed -- so the one thing that gives it
 -- away is that its own application has stopped listing it.
+--
+-- Returns the list, and which stale entry each swapped-in window replaced, so
+-- that the replacement can be ranked by the time the row last saw use.
 local function reconcile(list)
   local byPid = {}
   for _, w in ipairs(list) do
@@ -79,7 +109,7 @@ local function reconcile(list)
     if live[w:id()] then claimed[w:id()] = true end
   end
 
-  local space, result = hs.spaces.focusedSpace(), {}
+  local space, result, replaced = hs.spaces.focusedSpace(), {}, {}
   for _, w in ipairs(list) do
     if live[w:id()] then
       result[#result + 1] = w
@@ -88,20 +118,38 @@ local function reconcile(list)
       -- keeps its place in the most-recently-used order. Candidates are held
       -- to the same standard-window and current-Space rules as the filter
       -- itself, since :isWindowAllowed consults the very cache that is stale.
-      local app = w:application()
+      local app, swapped = w:application(), nil
       for _, candidate in ipairs(app and byPid[app:pid()] or {}) do
         if not claimed[candidate:id()]
             and candidate:isStandard()
             and onCurrentSpace(candidate, space) then
           claimed[candidate:id()] = true
           result[#result + 1] = candidate
+          replaced[candidate:id()] = w
+          swapped = candidate
           break
+        end
+      end
+
+      if tracing() then
+        if swapped then
+          log.d('reconcile: stale ' .. describe(w) .. ' -> ' .. describe(swapped))
+        else
+          local seen = {}
+          for _, c in ipairs(app and byPid[app:pid()] or {}) do
+            seen[#seen + 1] = string.format('%s%s', describe(c),
+              claimed[c:id()] and ' [claimed]'
+              or not c:isStandard() and ' [not standard]'
+              or not onCurrentSpace(c, space) and ' [other Space]' or '')
+          end
+          log.d('reconcile: stale ' .. describe(w) .. ' dropped; candidates: '
+            .. (#seen > 0 and table.concat(seen, ', ') or 'none'))
         end
       end
     end
   end
 
-  return result
+  return result, replaced
 end
 
 --------------------------------------------------------------------------------
@@ -132,6 +180,7 @@ local focusedAt, ghosts = {}, {}   -- window id -> time; pid -> { win, at }
 local function onFocused(win)
   local id = win:id()
   if id then focusedAt[id] = hs.timer.secondsSinceEpoch() end
+  if tracing() then log.d('focused ' .. describe(win)) end
 end
 
 local function onDestroyed(win)
@@ -140,12 +189,23 @@ local function onDestroyed(win)
   local id = win:id()
   ghosts[pid] = { win = win, at = id and focusedAt[id] or 0 }
   if id then focusedAt[id] = nil end
+  if tracing() then log.d('destroyed ' .. describe(win) .. '; ghost for pid ' .. pid) end
 end
 
 local function onAppEvent(_, event, app)
   if event ~= hs.application.watcher.activated then return end
+  local now = hs.timer.secondsSinceEpoch()
   local ghost = app and ghosts[app:pid()]
-  if ghost then ghost.at = hs.timer.secondsSinceEpoch() end
+  if ghost then ghost.at = now end
+
+  -- The filter's focus events miss any tab it has not registered, so an
+  -- activation is the only sign such a tab was used. See byRecency.
+  local front = app and app:focusedWindow()
+  local id = front and front:id()
+  if id then focusedAt[id] = now end
+  if tracing() then
+    log.d('activated ' .. (app and app:name() or '?') .. (ghost and ' (ghost re-timed)' or ''))
+  end
 end
 
 -- Each ghost goes in front of the first entry focused less recently than it.
@@ -181,9 +241,68 @@ local function pruneGhosts(cached, list)
     if not known[w:id()] then adopted[w:pid()] = true end
   end
 
-  for pid in pairs(ghosts) do
-    if not adopted[pid] then ghosts[pid] = nil end
+  for pid, ghost in pairs(ghosts) do
+    if not adopted[pid] then
+      ghosts[pid] = nil
+      if tracing() then log.d('ghost pruned: ' .. describe(ghost.win)) end
+    end
   end
+end
+
+--------------------------------------------------------------------------------
+-- Keeping the list honest about which tab a row was used through
+--------------------------------------------------------------------------------
+-- reconcile repairs which window a row names, but not where the row ranks:
+-- the filter ranks a tab group by the last time it saw the *stale* tab
+-- focused. Bring the application forward on a different tab -- by committing
+-- to the row reconcile swapped in, or by clicking it -- and the filter hears
+-- nothing, because the tab it would hear about is not one it knows. The row
+-- then sinks one place with every other switch, and Terminal used a moment ago
+-- ends up last, below windows left untouched for minutes.
+--
+-- scope's own focus times know better: the application watcher stamps the
+-- activated app's front window, registered or not. So after reconcile the
+-- list is re-ranked by those times, with a swapped-in tab inheriting its
+-- stale entry's time -- the row was last used whenever either was. Windows
+-- scope has no time for were last focused before it loaded, so they sink
+-- below every timed one and keep the filter's order among themselves.
+
+local function lastFocused(w)
+  local id = w:id()
+  if focusedAt[id] then return focusedAt[id] end
+  local ghost = ghosts[w:pid()]
+  return ghost and ghost.win:id() == id and ghost.at or 0
+end
+
+local function byRecency(list, replaced)
+  local rows = {}
+  for i, w in ipairs(list) do
+    local stale = replaced[w:id()]
+    rows[i] = { win = w, i = i,
+      at = math.max(lastFocused(w), stale and lastFocused(stale) or 0) }
+  end
+
+  table.sort(rows, function(a, b)
+    if a.at ~= b.at then return a.at > b.at end
+    return a.i < b.i
+  end)
+
+  local result = {}
+  for i, row in ipairs(rows) do result[i] = row.win end
+  return result
+end
+
+-- One stage of scope.show's pipeline, a row per line. The age is scope's own
+-- focus time, which is what withGhosts and byRecency rank against; '-' means
+-- scope has not seen the window focused since it loaded.
+local function dump(stage, list)
+  local now, lines = hs.timer.secondsSinceEpoch(), { stage .. ':' }
+  for i, w in ipairs(list) do
+    local at = focusedAt[w:id()]
+    lines[#lines + 1] = string.format('  %d. %s  %s', i, describe(w),
+      at and string.format('%.1fs ago', now - at) or '-')
+  end
+  log.d(table.concat(lines, '\n'))
 end
 
 --------------------------------------------------------------------------------
@@ -342,6 +461,7 @@ end
 
 function scope.commit()
   local target = wins[idx]
+  if tracing() then log.d('commit ' .. idx .. ': ' .. (target and describe(target) or 'none')) end
   teardown()
   if target then target:focus() end
 end
@@ -524,9 +644,22 @@ function scope.show(delta)
   if canvas then scope.step(delta); return end
 
   local cached = spaceFilter:getWindows(hs.window.filter.sortByFocusedLast)
-  wins = reconcile(withGhosts(cached))
-  pruneGhosts(cached, wins)
-  wins = promoteFocused(wins)
+  local ghosted = withGhosts(cached)
+  local reconciled, replaced = reconcile(ghosted)
+  pruneGhosts(cached, reconciled)
+  local ranked = byRecency(reconciled, replaced)
+  wins = promoteFocused(ranked)
+
+  if tracing() then
+    local focused = hs.window.focusedWindow()
+    log.d('show; focused ' .. (focused and describe(focused) or 'none'))
+    dump('filter', cached)
+    if ghosted ~= cached then dump('withGhosts', ghosted) end
+    dump('reconcile', reconciled)
+    dump('byRecency', ranked)
+    if wins ~= ranked then dump('promoteFocused', wins) end
+  end
+
   if #wins < 2 then return end
 
   -- Start on the next window, so a quick press-and-release toggles between
@@ -570,8 +703,10 @@ scope.appWatcher = hs.application.watcher.new(onAppEvent):start()
 -- the thing that broke. Held on the table for the same reason as the tap.
 scope.reloadHotkey = hs.hotkey.bind(cfg.reload[1], cfg.reload[2], hs.reload)
 
--- A handle to poke at from the console: package.loaded.scope.filter
+-- Handles to poke at from the console: package.loaded.scope.filter, and
+-- package.loaded.scope.log for switching the trace on and off.
 scope.filter = spaceFilter
+scope.log = log
 
 --------------------------------------------------------------------------------
 -- Startup
