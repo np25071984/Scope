@@ -99,6 +99,7 @@ Everything configurable lives in the `scope.config` table at the top of `scope.l
 - `allowRoles = 'AXStandardWindow'` keeps helper windows out of the list. Several apps park invisible ones in every Space to render popups — Microsoft Teams' Notification Center keeps a 680×932 one titled literally "Window". They report subrole `AXDialog`, so restricting roles drops all of them at once rather than blacklisting apps by name as they turn up.
 - Native-fullscreen apps each occupy their own Space, so they correctly drop out of the list.
 - macOS native window tabbing — Terminal, Finder, Preview, anything that merges windows into a tab bar — gives every tab its own window but exposes only the frontmost one to Accessibility. A tab switch is therefore one window quietly replacing another, and it fires none of the created/destroyed events `hs.window.filter` maintains its cache from, so the cache keeps naming the tab that was up when it last heard anything. Left alone that showed the wrong title on the row and, on release, hauled that other tab in front of the one you actually left up. Scope reconciles the filter's list against each application's live window list before drawing, which costs ~10ms and leaves the most-recently-used ordering alone.
+- Closing the frontmost tab is the one swap that does fire an event — the closed tab's window is destroyed — but the tab that comes forward is still never registered, and the filter goes on treating the destroyed window as the application's focused one, so later activations never look again. With nothing left in the cache, the application has no row for reconciling to correct. A destroyed window therefore leaves a ghost entry at the rank it held, which reconciling swaps for the tab that is up now, or drops when there is none.
 - A tab group is always one row, never one row per tab. The tabs behind the front one do not exist as far as Accessibility is concerned, so there is nothing to list and no way to target them. Cycle those with the application's own tab shortcuts.
 - Electron apps (Slack, VS Code, Discord) are slow to answer Accessibility queries. If the switcher feels laggy, uncomment the `rejectApp` line.
 - The overlay is hand-rolled on `hs.canvas` rather than using `hs.window.switcher`. The built-in switcher lays itself out around window thumbnails, which need the Screen Recording permission, and it offers no way to cancel. Drawing icons and titles instead means Accessibility is the only permission required.
@@ -109,6 +110,10 @@ Everything configurable lives in the `scope.config` table at the top of `scope.l
 - `scope.lua` defines no globals and sets no Hammerspoon-wide preferences. It is required into somebody else's `init.lua`, where a stray global named `scope` or `spaceFilter` would collide silently, and where flipping `hs.menuIcon` or `hs.automaticallyCheckForUpdates` would override a deliberate choice. The module table is returned instead; `package.loaded` then holds the reference that keeps the two event taps and the reload hotkey from being collected, and `package.loaded.scope.filter` is the handle for poking at the window filter from the console.
 
 ## Changelog
+
+### 1.1.1 — 2026-10-10
+
+Closing the front tab of a tabbed application no longer drops the application from the switcher. The tab that came forward was never registered by the window filter, and with the closed one gone the application had no row left — Terminal with a single window of tabs simply vanished from the list. A closed window now leaves a placeholder at its place in the most-recently-used order, filled by whichever tab is up now, so the application stays where you left it.
 
 ### 1.1.0 — 2026-09-21
 
