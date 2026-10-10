@@ -105,6 +105,88 @@ local function reconcile(list)
 end
 
 --------------------------------------------------------------------------------
+-- Keeping the list honest about closed tabs
+--------------------------------------------------------------------------------
+-- Closing the frontmost tab destroys its window, and the filter drops it --
+-- but the tab that comes forward in its place is never registered. The filter
+-- learns about an app's windows from creation and focus-change notifications,
+-- and a tab swap sends neither; worse, its per-app record of the focused
+-- window still points at the destroyed one, so later activations of the app
+-- re-focus a dead window instead of looking again. Terminal with its last row
+-- closed then vanishes from the list entirely, and reconcile cannot rescue it:
+-- reconcile only asks apps that still have a row.
+--
+-- So a destroyed window leaves a ghost behind: a stale entry, slotted into the
+-- list where the closed tab used to rank, that reconcile swaps for whichever
+-- tab is up now exactly as it does for any other stale entry. A ghost with
+-- nothing to swap in -- the window really was the app's last on this Space,
+-- or its successor has since been registered and is claimed -- is dropped.
+--
+-- The ranking needs focus times, which the filter keeps but does not expose,
+-- so scope records its own from the filter's focus events. Those miss the
+-- ghost's app for the same reason the filter does, so its activations are
+-- picked up from the application watcher instead.
+
+local focusedAt, ghosts = {}, {}   -- window id -> time; pid -> { win, at }
+
+local function onFocused(win)
+  local id = win:id()
+  if id then focusedAt[id] = hs.timer.secondsSinceEpoch() end
+end
+
+local function onDestroyed(win)
+  local pid = win:pid()
+  if not pid then return end
+  local id = win:id()
+  ghosts[pid] = { win = win, at = id and focusedAt[id] or 0 }
+  if id then focusedAt[id] = nil end
+end
+
+local function onAppEvent(_, event, app)
+  if event ~= hs.application.watcher.activated then return end
+  local ghost = app and ghosts[app:pid()]
+  if ghost then ghost.at = hs.timer.secondsSinceEpoch() end
+end
+
+-- Each ghost goes in front of the first entry focused less recently than it.
+-- Entries scope has no time for were last focused before it loaded, which is
+-- before any ghost could have been made.
+local function withGhosts(list)
+  if not next(ghosts) then return list end
+
+  local pending = {}
+  for _, ghost in pairs(ghosts) do pending[#pending + 1] = ghost end
+  table.sort(pending, function(a, b) return a.at > b.at end)
+
+  local result, g = {}, 1
+  for _, w in ipairs(list) do
+    while pending[g] and pending[g].at > (focusedAt[w:id()] or 0) do
+      result[#result + 1] = pending[g].win; g = g + 1
+    end
+    result[#result + 1] = w
+  end
+  for i = g, #pending do result[#result + 1] = pending[i].win end
+
+  return result
+end
+
+-- A ghost has done its job only if reconcile put a window of its app into the
+-- list that the filter itself did not supply.
+local function pruneGhosts(cached, list)
+  local known = {}
+  for _, w in ipairs(cached) do known[w:id()] = true end
+
+  local adopted = {}
+  for _, w in ipairs(list) do
+    if not known[w:id()] then adopted[w:pid()] = true end
+  end
+
+  for pid in pairs(ghosts) do
+    if not adopted[pid] then ghosts[pid] = nil end
+  end
+end
+
+--------------------------------------------------------------------------------
 -- Keeping the list honest about which window is current
 --------------------------------------------------------------------------------
 -- The filter's most-recently-used order is a cache fed by focus-change
@@ -441,7 +523,10 @@ end
 function scope.show(delta)
   if canvas then scope.step(delta); return end
 
-  wins = promoteFocused(reconcile(spaceFilter:getWindows(hs.window.filter.sortByFocusedLast)))
+  local cached = spaceFilter:getWindows(hs.window.filter.sortByFocusedLast)
+  wins = reconcile(withGhosts(cached))
+  pruneGhosts(cached, wins)
+  wins = promoteFocused(wins)
   if #wins < 2 then return end
 
   -- Start on the next window, so a quick press-and-release toggles between
@@ -473,6 +558,13 @@ scope.eventTap = hs.eventtap.new(
   { hs.eventtap.event.types.keyDown, hs.eventtap.event.types.flagsChanged },
   onEvent
 ):start()
+
+-- The ghost bookkeeping's feeds. The filter subscriptions are held by the
+-- filter itself; the application watcher needs the same strong reference as
+-- the taps.
+spaceFilter:subscribe(hs.window.filter.windowFocused, onFocused)
+spaceFilter:subscribe(hs.window.filter.windowDestroyed, onDestroyed)
+scope.appWatcher = hs.application.watcher.new(onAppEvent):start()
 
 -- Reload stays an ordinary hotkey. It has to keep working even if the tap is
 -- the thing that broke. Held on the table for the same reason as the tap.
