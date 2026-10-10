@@ -113,6 +113,12 @@ Everything configurable lives in the `scope.config` table at the top of `scope.l
 
 ## Changelog
 
+### 1.1.2 — 2026-10-10
+
+A tabbed application you used a moment ago no longer sinks to the bottom of the switcher. The window filter ranks a tab group by the last time it saw one particular tab focused, and bringing the application forward on any other tab tells it nothing — so Terminal, left a few seconds earlier, could rank below windows untouched for minutes. scope now notes the front window of every application it sees activated, carries a row's history over when a different tab takes its place, and orders the list by that before drawing.
+
+Added a debug trace for when the order comes out wrong anyway. `hs -c "package.loaded.scope.log.setLogLevel('debug')"` turns it on without a reload, and the Hammerspoon console then shows the list after every stage of building it, along with the events and decisions that fed each one.
+
 ### 1.1.1 — 2026-10-10
 
 Closing the front tab of a tabbed application no longer drops the application from the switcher. The tab that came forward was never registered by the window filter, and with the closed one gone the application had no row left — Terminal with a single window of tabs simply vanished from the list. A closed window now leaves a placeholder at its place in the most-recently-used order, filled by whichever tab is up now, so the application stays where you left it.
