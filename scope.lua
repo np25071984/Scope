@@ -388,6 +388,10 @@ scope.config = {
   -- modifier stays held throughout, exactly as it does for the keyboard.
   mouse = true,
 
+  -- After a Space switch, focus the window you last used on that Space when
+  -- macOS has left nothing there focused.
+  refocus = true,
+
   -- Standalone hotkeys, given as { modifiers, key }.
   reload = { { 'alt', 'shift' }, 'r' },
 
@@ -640,14 +644,21 @@ local function onMouse(e)
   return false
 end
 
-function scope.show(delta)
-  if canvas then scope.step(delta); return end
-
+-- The current Space's windows, most recently used first: the filter's cache
+-- with every repair but promoteFocused applied. Returns each stage as well, for
+-- the trace.
+local function currentWindows()
   local cached = spaceFilter:getWindows(hs.window.filter.sortByFocusedLast)
   local ghosted = withGhosts(cached)
   local reconciled, replaced = reconcile(ghosted)
   pruneGhosts(cached, reconciled)
-  local ranked = byRecency(reconciled, replaced)
+  return byRecency(reconciled, replaced), cached, ghosted, reconciled
+end
+
+function scope.show(delta)
+  if canvas then scope.step(delta); return end
+
+  local ranked, cached, ghosted, reconciled = currentWindows()
   wins = promoteFocused(ranked)
 
   if tracing() then
@@ -668,6 +679,63 @@ function scope.show(delta)
 
   draw()
   armWatchdog()
+end
+
+--------------------------------------------------------------------------------
+-- Keeping focus on the Space you arrive in
+--------------------------------------------------------------------------------
+-- Switching Spaces does not reliably move the keyboard with you. The app that
+-- was active on the Space you left stays active when it has nothing here --
+-- Finder after a click on the desktop is the usual one -- so you arrive with
+-- your last window in front but not focused, and typing goes nowhere until a
+-- Cmd-Tab hands it back.
+--
+-- scope already knows which window you used last on this Space: it is the
+-- first row the switcher would draw. So after a Space change, if nothing on
+-- the new Space has focus, that window gets it.
+--
+-- Only then. A window on this Space that already has focus is left alone,
+-- because a Space change is just as often the result of choosing a window --
+-- a Dock click, a notification, an app opening something -- and overriding
+-- that would undo what you just did. The cost is one case scope cannot help:
+-- when the app active on the Space you left also has a window here, macOS
+-- focuses that window, and scope cannot tell it from one you picked.
+--
+-- The check waits for the switch to settle. The animation has to finish,
+-- macOS has to make whatever activation it is going to make, and the filter
+-- has to catch up with the new Space; rearming the timer on every change also
+-- collapses a quick run of switches into one check on the Space you end on.
+
+local REFOCUS_DELAY, refocusTimer = 0.3, nil
+
+local function refocus()
+  refocusTimer = nil
+  if canvas then return end
+
+  local space = hs.spaces.focusedSpace()
+  local focused = hs.window.focusedWindow()
+  if focused and focused:isStandard() and onCurrentSpace(focused, space) then
+    if tracing() then log.d('refocus: ' .. describe(focused) .. ' already focused') end
+    return
+  end
+
+  -- The filter's notion of the current Space can lag the switch, so each
+  -- candidate is checked against the Space actually on screen.
+  local target
+  for _, w in ipairs((currentWindows())) do
+    if onCurrentSpace(w, space) then target = w; break end
+  end
+
+  if tracing() then
+    log.d(string.format('refocus: Space %s, focused %s -> %s', space,
+      focused and describe(focused) or 'none', target and describe(target) or 'none'))
+  end
+  if target then target:focus() end
+end
+
+local function onSpaceChanged()
+  if refocusTimer then refocusTimer:stop() end
+  refocusTimer = hs.timer.doAfter(REFOCUS_DELAY, refocus)
 end
 
 --------------------------------------------------------------------------------
@@ -698,6 +766,11 @@ scope.eventTap = hs.eventtap.new(
 spaceFilter:subscribe(hs.window.filter.windowFocused, onFocused)
 spaceFilter:subscribe(hs.window.filter.windowDestroyed, onDestroyed)
 scope.appWatcher = hs.application.watcher.new(onAppEvent):start()
+
+-- Held for the same reason as the taps.
+if cfg.refocus then
+  scope.spaceWatcher = hs.spaces.watcher.new(onSpaceChanged):start()
+end
 
 -- Reload stays an ordinary hotkey. It has to keep working even if the tap is
 -- the thing that broke. Held on the table for the same reason as the tap.
