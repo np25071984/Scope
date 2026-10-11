@@ -86,6 +86,7 @@ Everything configurable lives in the `scope.config` table at the top of `scope.l
 | `cancel` | keys that dismiss without switching |
 | `reload` | standalone hotkey, as `{ modifiers, key }` |
 | `mouse` | whether the pointer selects and clicks rows while the overlay is open |
+| `refocus` | whether switching Spaces focuses the window you last used there, when macOS leaves nothing focused |
 | `rowHeight`, `iconSize`, `padding`, `width`, `radius` | appearance |
 
 `modifier` drives both the activation hotkeys and the release-to-select detection, so changing it in one place is enough. Key names come from `hs.keycodes.map`; run `hs -c 'hs.inspect(hs.keycodes.map)'` for the full list.
@@ -102,6 +103,7 @@ Everything configurable lives in the `scope.config` table at the top of `scope.l
 - Closing the frontmost tab is the one swap that does fire an event — the closed tab's window is destroyed — but the tab that comes forward is still never registered, and the filter goes on treating the destroyed window as the application's focused one, so later activations never look again. With nothing left in the cache, the application has no row for reconciling to correct. A destroyed window therefore leaves a ghost entry at the rank it held, which reconciling swaps for the tab that is up now, or drops when there is none.
 - Reconciling fixes which tab a row names but not where the row ranks: the filter goes on ranking a tab group by the last time it saw the *stale* tab focused, and never hears about the tab you actually used, so a Terminal you left a moment ago could sink to the bottom of the list. Scope also stamps the front window of every application it sees activated, lets a swapped-in tab inherit its stale entry's time, and re-ranks the list by those times before drawing.
 - A tab group is always one row, never one row per tab. The tabs behind the front one do not exist as far as Accessibility is concerned, so there is nothing to list and no way to target them. Cycle those with the application's own tab shortcuts.
+- Switching Spaces does not reliably move the keyboard with you: the app active on the Space you left stays active when it has nothing on the new one — Finder after a click on the desktop is the usual case — so your last window is in front but not focused. Scope watches for Space changes and, once the switch has settled (0.3s), focuses the window the switcher would list first if nothing on the new Space has focus. It steps in only then, so a switch caused by choosing a window — a Dock click, a notification — is left alone. The one case it cannot help: when the app active on the Space you left also has a window on the new one, macOS focuses that window and scope cannot tell it from one you picked. Set `refocus = false` to turn this off.
 - Electron apps (Slack, VS Code, Discord) are slow to answer Accessibility queries. If the switcher feels laggy, uncomment the `rejectApp` line.
 - The overlay is hand-rolled on `hs.canvas` rather than using `hs.window.switcher`. The built-in switcher lays itself out around window thumbnails, which need the Screen Recording permission, and it offers no way to cancel. Drawing icons and titles instead means Accessibility is the only permission required.
 - One persistent event tap both opens the overlay and drives it. It swallows only the activation combination, <kbd>Tab</kbd> and <kbd>esc</kbd>; every other key returns untouched. If the handler throws, Hammerspoon passes the event through, so a broken config degrades to the system switcher rather than to a dead keyboard. A watchdog tears the overlay down after 10s without input, in case a modifier release is ever missed; every selection rearms it, so a slow decision with the mouse is not cut short.
@@ -112,6 +114,10 @@ Everything configurable lives in the `scope.config` table at the top of `scope.l
 - `scope.lua` defines no globals and sets no Hammerspoon-wide preferences. It is required into somebody else's `init.lua`, where a stray global named `scope` or `spaceFilter` would collide silently, and where flipping `hs.menuIcon` or `hs.automaticallyCheckForUpdates` would override a deliberate choice. The module table is returned instead; `package.loaded` then holds the reference that keeps the two event taps and the reload hotkey from being collected, and `package.loaded.scope.filter` is the handle for poking at the window filter from the console.
 
 ## Changelog
+
+### 1.2.0 — 2026-10-11
+
+Switching Spaces now brings the keyboard with you. macOS often leaves the previous Space's app active on arrival, so the Terminal you were working in came back in front but unfocused, and typing went nowhere until a ⌘Tab. scope now focuses the window you last used on a Space when you switch to it and nothing there has focus. Set `refocus = false` to turn it off.
 
 ### 1.1.2 — 2026-10-10
 
