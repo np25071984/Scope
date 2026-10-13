@@ -204,8 +204,24 @@ local function onDestroyed(win)
 end
 
 local function onAppEvent(_, event, app)
-  if event ~= hs.application.watcher.activated then return end
   local now = hs.timer.secondsSinceEpoch()
+
+  -- Activation stamps a tab as it is brought forward, but a tab switched to
+  -- by keyboard afterwards is never seen: Terminal left on it ranks as
+  -- untouched, and returning to its Space focuses VS Code instead. Losing
+  -- activation is the other end of the same use -- every Space switch hands
+  -- it to WindowManager -- and the app still names the tab it was on.
+  if event == hs.application.watcher.deactivated then
+    local front = app and app:focusedWindow()
+    if front then stamp(front, now) end
+    if tracing() then
+      log.d('deactivated ' .. (app and app:name() or '?') .. '; stamped '
+        .. (front and describe(front) or 'none'))
+    end
+    return
+  end
+
+  if event ~= hs.application.watcher.activated then return end
   local ghost = app and ghosts[app:pid()]
   if ghost then ghost.at = now end
 
@@ -787,6 +803,16 @@ local function refocus()
   local target, ranked = nil, (currentWindows())
   for _, w in ipairs(ranked) do
     if onCurrentSpace(w, space) then target = w; break end
+  end
+
+  -- Ranking puts every window scope has seen used ahead of those it has not,
+  -- so an unused first candidate means scope knows nothing about this Space
+  -- -- nothing used here since it loaded. The filter's order among such
+  -- windows is no record of use, and focusing by it picks a window at random;
+  -- macOS's own choice, or none, is better than a guess.
+  if target and lastFocused(target) == 0 then
+    if tracing() then log.d('refocus: nothing used on Space ' .. space .. ' since load; left alone') end
+    target = nil
   end
 
   if tracing() then
