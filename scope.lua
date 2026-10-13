@@ -177,9 +177,20 @@ end
 
 local focusedAt, ghosts = {}, {}   -- window id -> time; pid -> { win, at }
 
-local function onFocused(win)
+-- Every window scope has stamped, with the pid and Space it had then, for
+-- ranking tab groups. See groupFocused.
+local tabs = {}   -- window id -> { win, pid, space }
+
+local function stamp(win, now)
   local id = win:id()
-  if id then focusedAt[id] = hs.timer.secondsSinceEpoch() end
+  if not id then return end
+  focusedAt[id] = now
+  local spaces = hs.spaces.windowSpaces(win)
+  tabs[id] = { win = win, pid = win:pid(), space = spaces and spaces[1] }
+end
+
+local function onFocused(win)
+  stamp(win, hs.timer.secondsSinceEpoch())
   if tracing() then log.d('focused ' .. describe(win)) end
 end
 
@@ -188,7 +199,7 @@ local function onDestroyed(win)
   if not pid then return end
   local id = win:id()
   ghosts[pid] = { win = win, at = id and focusedAt[id] or 0 }
-  if id then focusedAt[id] = nil end
+  if id then focusedAt[id] = nil; tabs[id] = nil end
   if tracing() then log.d('destroyed ' .. describe(win) .. '; ghost for pid ' .. pid) end
 end
 
@@ -201,8 +212,7 @@ local function onAppEvent(_, event, app)
   -- The filter's focus events miss any tab it has not registered, so an
   -- activation is the only sign such a tab was used. See byRecency.
   local front = app and app:focusedWindow()
-  local id = front and front:id()
-  if id then focusedAt[id] = now end
+  if front then stamp(front, now) end
   if tracing() then
     log.d('activated ' .. (app and app:name() or '?') .. (ghost and ' (ghost re-timed)' or ''))
   end
@@ -274,12 +284,43 @@ local function lastFocused(w)
   return ghost and ghost.win:id() == id and ghost.at or 0
 end
 
+-- That still loses any tab used in between. Use Terminal through tab B, move to
+-- tab C, and the row is now C, or a stale A swapped for C: neither was focused
+-- when B was, so a window untouched since outranks the Terminal just used. A
+-- tab swap may also hand the filter C as a brand-new window, with no time at
+-- all, and the row drops to the bottom.
+--
+-- So a row ranks by the newest time across its whole tab group: every stamped
+-- window of the same app that is now swapped out, shares the row's frame, and
+-- was on this Space when it was stamped. A swapped-out tab still reports its
+-- group's frame but no Space at all, which is why the Space has to be the one
+-- recorded at the time -- maximized windows of one app on two Spaces share a
+-- frame too.
+local function groupFocused(w, at, space)
+  local pid, id, frame = w:pid(), w:id(), nil
+  for tid, tab in pairs(tabs) do
+    local t = focusedAt[tid]
+    if tid ~= id and t and t > at and tab.pid == pid and tab.space == space then
+      local ok, member = pcall(function()
+        frame = frame or w:frame()
+        return #(hs.spaces.windowSpaces(tab.win) or {}) == 0
+          and tab.win:frame():equals(frame)
+      end)
+      if ok and member then
+        if tracing() then log.d('tab group: ' .. describe(w) .. ' ranked by ' .. describe(tab.win)) end
+        at = t
+      end
+    end
+  end
+  return at
+end
+
 local function byRecency(list, replaced)
-  local rows = {}
+  local rows, space = {}, hs.spaces.focusedSpace()
   for i, w in ipairs(list) do
     local stale = replaced[w:id()]
-    rows[i] = { win = w, i = i,
-      at = math.max(lastFocused(w), stale and lastFocused(stale) or 0) }
+    local at = math.max(lastFocused(w), stale and lastFocused(stale) or 0)
+    rows[i] = { win = w, i = i, at = groupFocused(w, at, space) }
   end
 
   table.sort(rows, function(a, b)
@@ -573,6 +614,26 @@ end
 -- everything else returns false and passes straight through. If this function
 -- throws, Hammerspoon lets the event through untouched, so a broken handler
 -- degrades to the system switcher rather than to a dead keyboard.
+-- macOS switches off a tap whose handler keeps it waiting, and the event
+-- that timed out goes on to the Dock: the system switcher comes up in place of
+-- the overlay. Hammerspoon turns the tap back on without a word to Lua, so
+-- there is nothing to catch afterwards. Timing the handler itself is the next
+-- best thing; a warning here, always on, marks the press that came close.
+local SLOW_EVENT = 0.2   -- seconds; macOS gives up at around one
+
+local function timed(handler)
+  return function(e)
+    local t0 = hs.timer.absoluteTime()
+    local ok, result = pcall(handler, e)
+    local took = (hs.timer.absoluteTime() - t0) / 1e9
+    if took > SLOW_EVENT then
+      log.w(string.format('key handler took %.0fms; macOS may have passed this key on', took * 1000))
+    end
+    if not ok then error(result, 0) end
+    return result
+  end
+end
+
 local function onEvent(e)
   local types = hs.eventtap.event.types
   local flags = e:getFlags()
@@ -658,12 +719,14 @@ end
 function scope.show(delta)
   if canvas then scope.step(delta); return end
 
+  local t0 = hs.timer.absoluteTime()
   local ranked, cached, ghosted, reconciled = currentWindows()
   wins = promoteFocused(ranked)
 
   if tracing() then
     local focused = hs.window.focusedWindow()
-    log.d('show; focused ' .. (focused and describe(focused) or 'none'))
+    log.d(string.format('show; ranked in %.0fms; focused %s',
+      (hs.timer.absoluteTime() - t0) / 1e6, focused and describe(focused) or 'none'))
     dump('filter', cached)
     if ghosted ~= cached then dump('withGhosts', ghosted) end
     dump('reconcile', reconciled)
@@ -721,12 +784,13 @@ local function refocus()
 
   -- The filter's notion of the current Space can lag the switch, so each
   -- candidate is checked against the Space actually on screen.
-  local target
-  for _, w in ipairs((currentWindows())) do
+  local target, ranked = nil, (currentWindows())
+  for _, w in ipairs(ranked) do
     if onCurrentSpace(w, space) then target = w; break end
   end
 
   if tracing() then
+    dump('refocus candidates', ranked)
     log.d(string.format('refocus: Space %s, focused %s -> %s', space,
       focused and describe(focused) or 'none', target and describe(target) or 'none'))
   end
@@ -757,7 +821,7 @@ scope.mouseTap = hs.eventtap.new({
 
 scope.eventTap = hs.eventtap.new(
   { hs.eventtap.event.types.keyDown, hs.eventtap.event.types.flagsChanged },
-  onEvent
+  timed(onEvent)
 ):start()
 
 -- The ghost bookkeeping's feeds. The filter subscriptions are held by the
