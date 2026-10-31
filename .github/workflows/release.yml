@@ -1,0 +1,99 @@
+name: Release
+
+# A pushed v* tag builds scope for Apple Silicon and Intel, signs it with the
+# release certificate, and publishes it as a GitHub Release that install.sh
+# downloads. Tags are protected by a ruleset, so a release cannot be moved.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: release
+    runs-on: macos-latest
+    timeout-minutes: 20
+    # The signing certificate lives in this environment's secrets, which
+    # GitHub only hands to runs on v* tags.
+    environment: release
+    permissions:
+      contents: write  # to create the release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Version matches the tag
+        run: |
+          version="$(sed -n 's/^let version = "\(.*\)"$/\1/p' Sources/Scope/Support.swift)"
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "Support.swift says $version, tag is $GITHUB_REF_NAME"; exit 1; }
+
+      - name: Test
+        run: swift test
+
+      - name: Import the release certificate
+        env:
+          P12: ${{ secrets.SCOPE_RELEASE_P12 }}
+          P12_PASSWORD: ${{ secrets.SCOPE_RELEASE_P12_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/release.keychain-db"
+          password="$(openssl rand -hex 24)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 1800 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "$P12" | base64 -d > "$RUNNER_TEMP/release.p12"
+          security import "$RUNNER_TEMP/release.p12" -k "$keychain" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/release.p12"
+          security set-key-partition-list -S apple-tool:,apple: -k "$password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          identity="$(security find-identity -p codesigning "$keychain" | awk '/"scope release"/{print $2; exit}')"
+          [ -n "$identity" ] || { echo "release certificate not found"; exit 1; }
+          echo "SCOPE_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+
+      - name: Build and sign
+        run: ./build.sh --universal
+
+      - name: Check the signature
+        run: |
+          expected='identifier scope and certificate root = H"a846bd7500d703aba7f80b68faf6df39ee954ca3"'
+          actual="$(codesign -d -r- build/scope 2>&1 | sed -n 's/^designated => //p')"
+          [ "$actual" = "$expected" ] || { echo "signed as: $actual"; exit 1; }
+          lipo -archs build/scope
+
+      - name: Package
+        run: |
+          tar -czf scope-macos.tar.gz -C build scope
+          shasum -a 256 scope-macos.tar.gz > scope-macos.tar.gz.sha256
+          cat scope-macos.tar.gz.sha256
+
+      - name: Release notes from the changelog
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            $0 ~ "^### " v "( |$)" { on = 1; next }
+            on && /^##/ { exit }
+            on { print }
+          ' README.md > notes.md
+          [ -s notes.md ] || { echo "no Changelog entry for $version in README.md"; exit 1; }
+          cat >> notes.md <<'EOF'
+
+          ### Install or upgrade
+
+          ```
+          curl -fsSL https://raw.githubusercontent.com/np25071984/Scope/main/install.sh | sh
+          ```
+          EOF
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            scope-macos.tar.gz scope-macos.tar.gz.sha256 \
+            --title "scope ${GITHUB_REF_NAME#v}" --notes-file notes.md --verify-tag
+
+      - name: Remove the keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/release.keychain-db" || true

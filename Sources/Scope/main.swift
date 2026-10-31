@@ -17,6 +17,7 @@ let usage = """
                      the windows ⌘Tab would show, most recent first;
                      --direct reads them here instead of asking the service
       run            the service itself, in the foreground (what launchd runs)
+      uninstall      stop the service and remove scope; scope.conf is kept
       version        print the version
 
     config: \(Config.path)
@@ -94,6 +95,9 @@ case "list":
         }
         print(answer, terminator: "")
     }
+
+case "uninstall":
+    exit(Service.uninstall())
 
 case "version", "--version", "-v":
     print("scope \(version)")

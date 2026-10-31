@@ -1,11 +1,14 @@
 #!/bin/bash
 # Builds the `scope` binary into build/ and signs it.
 #
-#   ./build.sh                          build only
+#   ./build.sh                          build only, for this Mac's architecture
+#   ./build.sh --universal              build for Apple Silicon and Intel in one
+#                                       binary, as releases are
 #   ./build.sh --install [--prefix P]   install to P/bin/scope (default ~/.local)
 #                                       and start or restart the service
-#   ./build.sh --uninstall [--prefix P] stop the service, remove the binary and
-#                                       its launchd file; scope.conf is kept
+#   ./build.sh --uninstall [--prefix P] `scope uninstall`: stop the service,
+#                                       remove the binary and its launchd file;
+#                                       scope.conf is kept
 #
 # Signing. macOS ties the Accessibility permission to the binary's path and
 # signature. Signed with the same certificate, a rebuild installed to the same
@@ -23,10 +26,12 @@ cd "$(dirname "$0")"
 
 prefix="$HOME/.local"
 action=build
+archs=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --install) action=install ;;
     --uninstall) action=uninstall ;;
+    --universal) archs=(--arch arm64 --arch x86_64) ;;
     --prefix) prefix="${2:?--prefix needs a directory}"; shift ;;
     --prefix=*) prefix="${1#--prefix=}" ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
@@ -34,20 +39,18 @@ while [ $# -gt 0 ]; do
   shift
 done
 target="$prefix/bin/scope"
-label=io.github.np25071984.scope
 
 if [ "$action" = uninstall ]; then
-  if [ -x "$target" ]; then "$target" stop || true; fi
-  launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
-  rm -f "$HOME/Library/LaunchAgents/$label.plist" "$target"
-  echo "removed $target and its launchd file"
-  echo "kept ${XDG_CONFIG_HOME:-$HOME/.config}/scope/scope.conf, if there is one"
-  exit 0
+  if [ -x "$target" ]; then
+    exec "$target" uninstall
+  fi
+  echo "no scope at $target" >&2
+  exit 1
 fi
 
-swift build -c release
+swift build -c release ${archs[@]+"${archs[@]}"}
 mkdir -p build
-cp "$(swift build -c release --show-bin-path)/scope" build/scope
+cp "$(swift build -c release ${archs[@]+"${archs[@]}"} --show-bin-path)/scope" build/scope
 
 identity="${SCOPE_SIGN_IDENTITY:-}"
 if [ -z "$identity" ]; then
@@ -66,7 +69,7 @@ else
   echo "warning: no signing certificate found; signed ad hoc." >&2
   echo "         The Accessibility permission will not survive the next rebuild." >&2
 fi
-echo "built $PWD/build/scope ($(build/scope version))"
+echo "built $PWD/build/scope ($(build/scope version), $(lipo -archs build/scope))"
 
 [ "$action" = install ] || exit 0
 
