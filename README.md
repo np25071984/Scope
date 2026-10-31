@@ -134,6 +134,8 @@ When the list comes out in the wrong order, `scope list` shows it as the switche
 
 Architecture, threads, the window list, recency, refocus, the service and every edge case found so far are in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
+The decision logic is covered by tests: `swift test`.
+
 ## Changelog
 
 ### 2.1.0 — 2026-10-31

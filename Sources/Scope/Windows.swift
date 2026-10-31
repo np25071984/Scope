@@ -14,7 +14,7 @@
 import AppKit
 import ApplicationServices
 
-struct Window {
+struct Window: Rankable {
     let id: CGWindowID
     let pid: pid_t
     let element: AXUIElement

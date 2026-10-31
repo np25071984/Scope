@@ -15,30 +15,9 @@ import AppKit
 import ApplicationServices
 
 final class Recency {
-    /// How far back `rank(_:before:)` and `lastUsed(_:before:)` can look past
-    /// a window's latest stamp: each stamp keeps the newest use at least this
-    /// much older than itself.
-    static let history: TimeInterval = 1
-
-    private struct Stamp {
-        let at: TimeInterval
-        let previous: TimeInterval?
-        let pid: pid_t
-        let frame: CGRect?
-        let space: UInt64?
-
-        /// This stamp as it stood at `cutoff`, or nil if the window had not
-        /// been used by then as far as the stamp remembers.
-        func before(_ cutoff: TimeInterval) -> Stamp? {
-            if at < cutoff { return self }
-            guard let previous, previous < cutoff else { return nil }
-            return Stamp(at: previous, previous: nil, pid: pid, frame: frame, space: space)
-        }
-    }
-
     private let thread = RunLoopThread(name: "scope.recency")
     private let lock = NSLock()
-    private var stamps: [CGWindowID: Stamp] = [:]  // guarded by lock
+    private var table = StampTable()  // guarded by lock
     private var observers: [pid_t: AXObserver] = [:]  // recency thread only
     private var tokens: [NSObjectProtocol] = []
 
@@ -107,7 +86,7 @@ final class Recency {
             thread.remove(AXObserverGetRunLoopSource(observer))
         }
         lock.lock()
-        stamps = stamps.filter { $0.value.pid != pid }
+        table.remove(pid: pid)
         lock.unlock()
     }
 
@@ -117,17 +96,7 @@ final class Recency {
         let frame = AX.frame(window), space = SkyLight.activeSpace()
 
         lock.lock()
-        // A window is stamped several times in a burst -- activated, focus
-        // changed, deactivated -- so the use kept behind the latest is the
-        // newest one from before the burst, not simply the one replaced.
-        let previous = stamps[id].flatMap { now - $0.at >= Self.history ? $0.at : $0.previous }
-        stamps[id] = Stamp(at: now, previous: previous, pid: pid, frame: frame, space: space)
-        if stamps.count > 1024 {
-            // Oldest first; a window untouched that long ranks by z-order
-            // just as well.
-            let keep = stamps.sorted { $0.value.at > $1.value.at }.prefix(512)
-            stamps = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
-        }
+        table.record(id, at: now, pid: pid, frame: frame, space: space)
         lock.unlock()
         Log.trace("\(why): stamped window \(id) of pid \(pid)")
     }
@@ -138,58 +107,14 @@ final class Recency {
     func lastUsed(_ id: CGWindowID, before cutoff: TimeInterval = .infinity) -> TimeInterval? {
         lock.lock()
         defer { lock.unlock() }
-        return stamps[id]?.before(cutoff)?.at
+        return table.lastUsed(id, before: cutoff)
     }
 
-    /// `windows` most recently used first. Windows scope has never seen used
-    /// were last used before it started, so they go below every stamped one,
-    /// in stacking order, which is the window server's own record of use.
-    ///
-    /// A row ranks by the newest use across its tab group: any stamped window
-    /// of the same app, on the same Space when it was stamped, that is now
-    /// off screen and had the row's frame. That covers a tab used and then
-    /// switched away from by keyboard, and a tab that was closed -- both rank
-    /// the row that took their place. The Space matters because maximized
-    /// windows of one app on two Spaces share a frame too.
-    ///
-    /// With a `cutoff`, windows rank by their use before it, to look past an
-    /// event that itself stamped windows, such as a Space switch.
+    /// `windows` most recently used first; see `StampTable.rank`.
     func rank(_ windows: [Window], before cutoff: TimeInterval = .infinity) -> [Window] {
         lock.lock()
-        let stamps = self.stamps.compactMapValues { $0.before(cutoff) }
+        let table = self.table
         lock.unlock()
-
-        let onScreen = Set(windows.map(\.id))
-        let space = SkyLight.activeSpace()
-
-        func usedAt(_ w: Window) -> TimeInterval? {
-            var best = stamps[w.id]?.at
-            guard let space else { return best }
-            for (id, s) in stamps where id != w.id && !onScreen.contains(id)
-                && s.pid == w.pid && s.space == space && s.at > (best ?? 0)
-            {
-                if let f = s.frame, sameFrame(f, w.frame) {
-                    Log.trace("tab group: window \(w.id) ranked by \(id)")
-                    best = s.at
-                }
-            }
-            return best
-        }
-
-        return windows.map { ($0, usedAt($0)) }
-            .sorted { a, b in
-                switch (a.1, b.1) {
-                case let (x?, y?) where x != y: return x > y
-                case (.some, nil): return true
-                case (nil, .some): return false
-                default: return a.0.z < b.0.z
-                }
-            }
-            .map(\.0)
-    }
-
-    private func sameFrame(_ a: CGRect, _ b: CGRect) -> Bool {
-        abs(a.minX - b.minX) <= 2 && abs(a.minY - b.minY) <= 2
-            && abs(a.width - b.width) <= 2 && abs(a.height - b.height) <= 2
+        return table.rank(windows, space: SkyLight.activeSpace(), before: cutoff)
     }
 }
