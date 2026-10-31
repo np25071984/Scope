@@ -117,10 +117,16 @@ func awaitService() -> Never {
     for _ in 0..<30 {
         if let status = Control.request("status", timeout: 1) {
             if status.contains("NOT ALLOWED") {
+                // The binary the service runs, which is what needs the
+                // permission: under Homebrew, a copy, not this one.
+                let binary = status.split(separator: "\n")
+                    .first { $0.hasPrefix("binary:") }
+                    .map { $0.dropFirst("binary:".count).trimmingCharacters(in: .whitespaces) }
+                    ?? CommandLine.executable
                 print("""
 
                     scope needs Accessibility permission. In the window that opens, turn on \
-                    "scope" (or add \(CommandLine.executable) with +). It starts by itself \
+                    "scope" (or add \(binary) with +). It starts by itself \
                     within \(Int(Daemon.permissionInterval)) seconds of being allowed.
                     """)
                 _ = Service.run("/usr/bin/open", [

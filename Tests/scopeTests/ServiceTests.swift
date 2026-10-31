@@ -57,6 +57,32 @@ struct ServiceTests {
     }
 }
 
+@Suite("Homebrew")
+struct HomebrewTests {
+    @Test("a binary in the Cellar, or the service's copy in var/scope, belongs to Homebrew", arguments: [
+        "/opt/homebrew/Cellar/scope/2.3.0/bin/scope",
+        "/usr/local/Cellar/scope/2.3.0/bin/scope",
+        "/opt/homebrew/var/scope/scope",
+    ])
+    func homebrewPaths(path: String) {
+        #expect(Service.isHomebrewPath(path))
+    }
+
+    @Test("anywhere else, scope runs its own agent", arguments: [
+        "/Users/me/.local/bin/scope",
+        "/opt/scope/bin/scope",
+        "/opt/homebrew/Cellar/other/1.0/bin/scope",
+    ])
+    func otherPaths(path: String) {
+        #expect(!Service.isHomebrewPath(path))
+    }
+
+    @Test("both the current and the older brew services label are recognised")
+    func labels() {
+        #expect(Service.brewLabels == ["sh.brew.scope", "homebrew.mxcl.scope"])
+    }
+}
+
 @Suite("Status output")
 struct DurationTests {
     @Test("durations", arguments: [

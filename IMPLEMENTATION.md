@@ -89,6 +89,12 @@ Re-check the *believed* ones before relying on them, and all of them after a maj
 - **F29.** launchd agents do not inherit the shell's environment, and `$TMPDIR` can differ between them. *(documented)* `confstr(_CS_DARWIN_USER_TEMP_DIR)` gives the same directory to both. *(observed)*
 - **F30.** `log stream` shows `notice` and above by default; `info` and `debug` messages are hidden. *(documented)*
 
+### Homebrew
+
+- **F31.** Homebrew installs each version of a formula into its own Cellar directory (`Cellar/scope/<version>`), so the binary's real path changes with every upgrade. `var` is shared by all versions. *(observed)*
+- **F32.** Homebrew 7 labels a formula's service `sh.brew.<name>`; services started by older versions keep `homebrew.mxcl.<name>`. `brew services stop` removes the agent's file. `brew upgrade` and `brew reinstall` do not restart a running service. *(observed)*
+- **F33.** A formula that installs a prebuilt, signed binary with `bin.install` leaves it byte for byte as released, signature intact. *(observed)*
+
 ## Non-goals and known gaps
 
 **Deliberately not listed**, because they are not on screen in the current Space **[F6]**: windows on other Spaces, minimized windows, windows of hidden apps (⌘H), and the tabs behind the front tab of a tab group **[F9]**. Use Mission Control, the Dock or the app's own tab shortcuts for those.
@@ -317,7 +323,9 @@ Commands:
 - **logs**: exec `log stream --style compact --predicate 'subsystem == "io.github.np25071984.scope" AND process == "scope"'`, or `log show --last <t>`.
 - **list**: the socket's `list`; `--direct` builds the list in-process instead (stacking order, terminal's permission).
 
-If `~/Library/LaunchAgents/homebrew.mxcl.scope.plist` exists, `brew services` owns the service: start, stop and restart run `brew services <cmd> scope`, and status reads that label. Warn if both agents are loaded: two copies would both take ⌘Tab.
+`brew services` owns the service when its agent file exists (`sh.brew.scope`, or `homebrew.mxcl.scope` from older Homebrew **[F32]**), or when the binary itself is Homebrew's: in a Cellar, or the service's copy in `var/scope` (rules **specified by** `ServiceTests.swift`). The path check matters because `brew services stop` removes the agent file **[F32]**; without it, `scope start` would create scope's own agent pointing into the versioned Cellar. Start, stop and restart then run `brew services <cmd> scope`, status reads that label, and `uninstall` refuses with the Homebrew commands. Warn if both kinds of agent are loaded: two copies would both take ⌘Tab.
+
+The formula, `Formula/scope.rb` in this repository (tapped with `brew tap np25071984/scope https://github.com/np25071984/Scope`), installs the signed release tarball rather than building from source, which would sign ad hoc **[F24, F33]**. Its post-install steps copy the binary to `var/scope/scope`, replacing the old copy rather than rewriting it **[F27]**, and its service runs that copy: a path that stays the same across versions **[F31]**, with the release signature, so `brew upgrade` keeps the permission. The service is not restarted by an upgrade **[F32]**; the formula's caveats say to run `brew services restart scope`.
 
 ### Logging
 
