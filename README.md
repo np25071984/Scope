@@ -33,7 +33,7 @@ This replaces the system application switcher outright, so <kbd>⌘</kbd> <kbd>T
 
 To cycle windows of the current app only, use the native <kbd>⌘</kbd> <kbd>`</kbd> — macOS already scopes that to the frontmost app and to the current Space, so scope does not rebind it.
 
-> **Preview: Scope.app.** A standalone build that needs no Hammerspoon and keeps ⌘Tab responsive while other apps are busy lives in [`app/`](app/README.md). The instructions below are for the Hammerspoon version, which remains the supported one for now.
+> **Preview: standalone `scope`.** A single binary that needs no Hammerspoon, runs as a launchd service with `scope start/stop/status`, and keeps ⌘Tab responsive while other apps are busy lives in [`app/`](app/README.md). The instructions below are for the Hammerspoon version, which remains the supported one for now.
 
 ## Install
 
