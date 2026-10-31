@@ -7,18 +7,18 @@ How scope works, and why it works that way. [README.md](README.md) covers using 
 ```mermaid
 flowchart LR
     subgraph shell["Terminal (terminal's permission)"]
-        CLI["scope start | stop | restart<br/>status | list | reload | logs"]
+        CLI["scope start | stop | restart<br/>status | list | reload | logs<br/><i>main.swift, Service.swift</i>"]
     end
 
     subgraph service["scope run (launchd agent, scope's own permission)"]
-        Daemon["Daemon<br/>config, permission, signals"]
-        Control["Control<br/>unix socket server"]
-        Switcher
-        KeyTap
-        WindowLister
-        Recency
-        Overlay
-        Focus
+        Daemon["Daemon<br/><i>Daemon.swift</i><br/>config, permission, signals"]
+        Control["Control<br/><i>Control.swift</i><br/>unix socket server"]
+        Switcher["Switcher<br/><i>Switcher.swift</i><br/>open, step, commit, refocus"]
+        KeyTap["KeyTap<br/><i>KeyTap.swift</i><br/>keyboard and pointer taps"]
+        WindowLister["WindowLister<br/><i>Windows.swift</i><br/>the window list"]
+        Recency["Recency<br/><i>Recency.swift</i><br/>last-used stamps"]
+        Overlay["Overlay<br/><i>Overlay.swift</i><br/>the panel"]
+        Focus["Focus<br/><i>Focus.swift</i><br/>bring one window forward"]
     end
 
     CLI -- "launchctl / brew services" --> launchd
@@ -40,21 +40,21 @@ flowchart LR
     Focus -. "SkyLight (private), AXRaise" .-> WS
 ```
 
-| File | Role |
-|---|---|
-| `main.swift` | Command-line entry point; `scope run` hands over to `Daemon` |
-| `Service.swift` | launchd: writes the agent's plist, bootstrap/bootout/kickstart, hands over to `brew services` |
-| `Control.swift` | The unix socket, client and server |
-| `Daemon.swift` | The service process: config, Accessibility permission, signals, socket answers |
-| `Config.swift` | Parses `scope.conf` |
-| `Switcher.swift` | What ⌘Tab opens, steps through and commits; refocus after a Space switch |
-| `KeyTap.swift` | The keyboard and pointer event taps |
-| `Windows.swift` | The current Space's windows: window server joined to Accessibility |
-| `Recency.swift` | Most-recently-used stamps |
-| `Overlay.swift` | The panel that draws the list |
-| `Focus.swift` | Bringing one window forward |
-| `Private.swift` | Every undocumented call, looked up at run time |
-| `Support.swift` | Logging, version, a thread with its own run loop |
+| File | Main type | Role |
+|---|---|---|
+| `main.swift` | — | Command-line entry point; `scope run` hands over to `Daemon` |
+| `Service.swift` | `Service` | launchd: writes the agent's plist, bootstrap/bootout/kickstart, hands over to `brew services` |
+| `Control.swift` | `Control` | The unix socket, client and server |
+| `Daemon.swift` | `Daemon` | The service process: config, Accessibility permission, signals, socket answers |
+| `Config.swift` | `Config` | Parses `scope.conf` |
+| `Switcher.swift` | `Switcher` | What ⌘Tab opens, steps through and commits; refocus after a Space switch |
+| `KeyTap.swift` | `KeyTap` | The keyboard and pointer event taps |
+| `Windows.swift` | `WindowLister`, `Window`, `AX` | The window list: the current Space's windows, window server joined to Accessibility |
+| `Recency.swift` | `Recency` | Most-recently-used stamps |
+| `Overlay.swift` | `Overlay` | The panel that draws the list |
+| `Focus.swift` | `Focus` | Bringing one window forward |
+| `Private.swift` | `SkyLight` | Every undocumented call, looked up at run time |
+| `Support.swift` | `Log`, `RunLoopThread` | Logging, version, a thread with its own run loop |
 
 ### Threads
 
