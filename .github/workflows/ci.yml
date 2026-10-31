@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# The token can read the repository and nothing else.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      # Pinned to a commit, not a tag: a tag can be moved. Dependabot updates it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Toolchain
+        run: swift --version
+
+      - name: Test
+        run: swift test
+
+      - name: Build
+        # Without a signing certificate on the runner, build.sh signs ad hoc
+        # and says so; the build itself is what this checks.
+        run: |
+          ./build.sh
+          build/scope version
