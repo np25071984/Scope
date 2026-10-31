@@ -57,7 +57,7 @@ scope is a single binary run as a launchd service. It has no app bundle, Dock ic
 
 ## Is scope for you?
 
-scope is a tiny open-source tool: one 417 KB binary that does two things, a window switcher for the current Space and focus that follows you across Spaces. There is no app and no UI beyond the switcher itself. It runs as a background service you control from the terminal, and you configure it in a text file. It is built from source, with no installer, no automatic updates and no paid support.
+scope is a tiny open-source tool: one binary under 1 MB that does two things, a window switcher for the current Space and focus that follows you across Spaces. There is no app and no UI beyond the switcher itself. It runs as a background service you control from the terminal, and you configure it in a text file. It installs with one command in Terminal, with no app to drag anywhere, no automatic updates and no paid support.
 
 It may not be what you want:
 
@@ -67,28 +67,37 @@ It may not be what you want:
 
 ## Install
 
-Needs macOS 13 or later and the Xcode command line tools.
+Needs macOS 13 or later, on Apple Silicon or Intel. In Terminal:
 
 ```bash
-./build.sh --install                       # ~/.local/bin/scope
+curl -fsSL https://raw.githubusercontent.com/np25071984/Scope/main/install.sh | sh
+```
+
+This downloads the latest release, checks its checksum and signature, installs `~/.local/bin/scope` and starts the service. From then on it starts at every login, and launchd restarts it if it crashes.
+
+On first start, scope asks for **Accessibility** permission, its only one, and opens the right pane of System Settings. Turn on **scope** there. If it is not listed, add `~/.local/bin/scope` with **+** (⌘⇧G to type the path). The service checks every 5 seconds and starts by itself once allowed.
+
+**Upgrade** by running the same command again. The service restarts on the new version and keeps its permission.
+
+**Remove** it with `scope uninstall`. It stops the service and removes the binary, its launchd file and its log; `scope.conf` is left in place. Remove **scope** from the Accessibility list by hand.
+
+To install a particular release, or somewhere other than `~/.local`, set `SCOPE_VERSION=v2.2.0` or `SCOPE_PREFIX=/opt/scope` for `sh`, after the `|`. Keep the prefix the same from then on: macOS ties the permission to the binary's path, so a new path needs it granted again.
+
+Releases are signed with scope's own self-signed certificate, not an Apple Developer ID, so they are not notarized. The installer is unaffected. A release archive downloaded with a browser, though, is quarantined, and macOS refuses to run it until you clear that: `xattr -d com.apple.quarantine scope`.
+
+### Building from source
+
+For working on scope. Needs the Xcode command line tools.
+
+```bash
+./build.sh                                 # build and sign build/scope
+./build.sh --install                       # also install ~/.local/bin/scope and restart the service
 ./build.sh --install --prefix /opt/scope   # /opt/scope/bin/scope
+./build.sh --universal                     # Apple Silicon and Intel in one binary, as releases are
+swift test                                 # the decision logic
 ```
 
-This builds and signs `scope`, installs it, writes `~/Library/LaunchAgents/io.github.np25071984.scope.plist` and starts the service. From then on it starts at every login, and launchd restarts it if it crashes.
-
-On first start, scope asks for **Accessibility** permission, its only one, and opens the right pane of System Settings. Turn on **scope** there. If it is not listed, add the binary with **+** (⌘⇧G to type the path). The service checks every 5 seconds and starts by itself once allowed.
-
-To update, pull and run `./build.sh --install` again; the service restarts on the new binary and keeps its permission. To remove it:
-
-```bash
-./build.sh --uninstall [--prefix P]   # stops it, removes the binary and the launchd file
-```
-
-`scope.conf` is left in place.
-
-### Signing, and why the permission can reset
-
-macOS ties the Accessibility permission to the binary's **path and signature**. Rebuilt and installed to the same path with the same certificate, scope keeps it. Installed somewhere else, or signed ad hoc, it needs granting again.
+macOS ties the Accessibility permission to the binary's **path and signature**. Rebuilt and installed to the same path with the same certificate, scope keeps it. Installed somewhere else, signed ad hoc, or swapped between a local build and a release (each signed with a different certificate), it needs granting again.
 
 `build.sh` signs with `$SCOPE_SIGN_IDENTITY`, else the first *Developer ID Application*, *Apple Development* or *Scope Dev* certificate in your keychain, else ad hoc. For local builds, create a self-signed certificate once: Keychain Access → Certificate Assistant → Create a Certificate…, name **Scope Dev**, type **Code Signing**. It does not need to be marked as trusted.
 
@@ -107,6 +116,7 @@ If System Settings shows a **scope** entry with a folder icon that does nothing 
 | `scope list` | the windows ⌘Tab would show, most recent first, each with when it was last used |
 | `scope list --direct` | read the windows in this process instead: stacking order, and it needs the terminal to have Accessibility permission |
 | `scope run` | the service in the foreground; what launchd runs |
+| `scope uninstall` | stop the service and remove scope; `scope.conf` is kept |
 | `scope version` | |
 
 `status`, `list` and `reload` talk to the running service through a socket in the per-user temporary directory. That is deliberate: run from a shell, a command gets the terminal's Accessibility permission, not scope's, and only the service knows which windows were used when.
@@ -147,6 +157,12 @@ Architecture, threads, the window list, recency, refocus, the service and every 
 The decision logic is covered by tests: `swift test`.
 
 ## Changelog
+
+### Unreleased
+
+scope is now installed from a prebuilt release, with no sources needed: `curl -fsSL https://raw.githubusercontent.com/np25071984/Scope/main/install.sh | sh`. Running it again upgrades, and the permission is kept. Releases run on Apple Silicon and Intel, and are signed with scope's release certificate, which the installer checks. New `scope uninstall` removes scope without the sources. `./build.sh --install` is now for working on scope.
+
+Upgrading from a source build: run the installer, then turn on **scope** in Accessibility again, since a release is signed with a different certificate from your local builds.
 
 ### 2.1.0 — 2026-10-31
 

@@ -39,3 +39,5 @@ Once the release PR is merged, tag its merge commit and push the tag. Tags are p
 git tag -a vX.Y.Z <merge commit> -m "scope X.Y.Z: <one line>"
 git push origin vX.Y.Z
 ```
+
+The tag runs `.github/workflows/release.yml`, which builds, signs and publishes the release that `install.sh` installs. It fails, publishing nothing, if `version` does not match the tag or the Changelog has no entry for it. Signing needs the `release` environment's secrets, `SCOPE_RELEASE_P12` and `SCOPE_RELEASE_P12_PASSWORD`; never put that certificate anywhere else.

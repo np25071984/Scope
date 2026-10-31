@@ -100,6 +100,31 @@ enum Service {
         return code
     }
 
+    /// Stops the service and removes it: the launchd file, the log and this
+    /// binary. scope.conf stays, as configuration does when a package is
+    /// removed.
+    static func uninstall() -> Int32 {
+        if isHomebrew {
+            fputs("scope: installed by Homebrew; run `brew services stop scope && brew uninstall scope`\n", stderr)
+            return 1
+        }
+        if state(ownLabel).loaded { bootout() }
+        let binary = CommandLine.executable
+        var removed: [String] = []
+        for path in [plist(ownLabel), logFile, binary] where FileManager.default.fileExists(atPath: path) {
+            do {
+                try FileManager.default.removeItem(atPath: path)
+                removed.append(path)
+            } catch {
+                fputs("scope: cannot remove \(path): \(error.localizedDescription)\n", stderr)
+            }
+        }
+        for path in removed { print("removed \(path)") }
+        print("kept \(Config.path), if there is one")
+        print("Remove \"scope\" from System Settings → Privacy & Security → Accessibility by hand.")
+        return 0
+    }
+
     // MARK: launchd
 
     /// The agent's file for this binary. Returns whether it had to be written.

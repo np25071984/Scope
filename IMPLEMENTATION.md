@@ -325,10 +325,12 @@ Unified log, subsystem `io.github.np25071984.scope`. Lifecycle and warnings alwa
 
 ### Build, sign, install
 
-- `swift build -c release`, executable product `scope`, macOS 13+, links AppKit and ApplicationServices.
+- `swift build -c release`, executable product `scope`, macOS 13+, links AppKit and ApplicationServices. Releases are universal (`--arch arm64 --arch x86_64`).
 - Sign: `codesign --force --options runtime --identifier scope --sign <identity>`. The identifier must be plain and there must be no `Info.plist` **[F25]**. The identity is `$SCOPE_SIGN_IDENTITY`, else the first *Developer ID Application*, *Apple Development* or *Scope Dev* in `security find-identity -p codesigning` (not `-v` **[F26]**), else ad hoc with a warning that the permission will not survive a rebuild **[F24]**.
-- Install: copy to `<prefix>/bin/scope.new`, `mv -f` over `<prefix>/bin/scope` (never overwrite in place **[F27]**), run `scope restart`. Default prefix `~/.local`.
-- Uninstall: `scope stop`, `bootout`, remove the plist and the binary; keep `scope.conf`.
+- Two certificates, so two identities for the permission **[F24]**: local builds use the developer's own (*Scope Dev*); releases use the self-signed **scope release** certificate, whose designated requirement is `identifier scope and certificate root = H"a846bd7500d703aba7f80b68faf6df39ee954ca3"`. Its key exists only in the `release` environment's secrets. Swapping between a local build and a release needs the permission granted again. Losing the release key means a new certificate, and every user granting the permission again.
+- Releases: a pushed `v*` tag runs `.github/workflows/release.yml`, which checks the tag against `version`, runs the tests, imports the certificate into a temporary keychain added to the search list (`codesign` finds an identity only there), builds with `build.sh --universal`, checks the designated requirement, and publishes `scope-macos.tar.gz` with its SHA-256 and the version's Changelog entry. No notarization: there is no Developer ID, so a browser-downloaded archive is quarantined; `curl` downloads are not.
+- Install (`install.sh`): download the archive and checksum from the latest release (or `$SCOPE_VERSION`), verify the checksum, `codesign --verify --strict`, and the exact designated requirement above; then copy to `<prefix>/bin/scope.new`, `mv -f` over `<prefix>/bin/scope` (never overwrite in place **[F27]**), and run `scope restart`. Default prefix `~/.local`. `build.sh --install` does the same from a local build.
+- Uninstall: `scope uninstall` boots the agent out and removes the plist, the log and its own binary; `scope.conf` stays. Refused when Homebrew owns the service.
 
 ## Constants
 
