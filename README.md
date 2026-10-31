@@ -4,7 +4,9 @@ Keyboard-first window switching on macOS, scoped to the current Space.
 
 ## The problem
 
-macOS <kbd>⌘</kbd> <kbd>Tab</kbd> switches *applications* across *all* Spaces. If you organise your work into Spaces, that defeats the purpose — you reach for the other window in front of you and get yanked into a different Space instead. There is no native "cycle windows in this Space" switcher, and the gesture-based alternatives are useless without a trackpad.
+macOS <kbd>⌘</kbd> <kbd>Tab</kbd> switches *applications* across *all* Spaces. If you organise your work into Spaces, that defeats the purpose — you reach for the other window in front of you and get yanked into a different Space instead.
+
+The closest native tool is Mission Control (three-finger swipe up, or <kbd>⌃</kbd> <kbd>↑</kbd>). It does show the current Space's windows, but you pick one by pointing at it. If you would rather not reach for gestures or the pointer to change windows, there is no native way to cycle the windows in this Space from the keyboard.
 
 ## What this does
 
@@ -22,7 +24,7 @@ Replaces the switcher with one that lists **windows** (not apps) from the **curr
 | click a row | switch to that window |
 | click anywhere else | dismiss without switching |
 
-> <kbd>⌘</kbd> is the **Command** key, <kbd>⇧</kbd> is **Shift**, and <kbd>⌥</kbd> is **Option** — the one between Control and Command, printed `alt` on some keyboards.
+> <kbd>⌘</kbd> is the **Command** key, <kbd>⇧</kbd> is **Shift**, <kbd>⌃</kbd> is **Control**, and <kbd>⌥</kbd> is **Option** — the one between Control and Command, printed `alt` on some keyboards.
 
 Hold <kbd>⌘</kbd>, tab to the window you want, release to select. Press <kbd>esc</kbd> while still holding <kbd>⌘</kbd> to back out and stay where you are.
 
@@ -61,7 +63,7 @@ macOS ties the Accessibility permission to the binary's **path and signature**. 
 
 `build.sh` signs with `$SCOPE_SIGN_IDENTITY`, else the first *Developer ID Application*, *Apple Development* or *Scope Dev* certificate in your keychain, else ad hoc. For local builds, create a self-signed certificate once: Keychain Access → Certificate Assistant → Create a Certificate…, name **Scope Dev**, type **Code Signing**. It does not need to be marked as trusted.
 
-The binary is signed with the plain identifier `scope` and carries no `Info.plist`. With a reverse-DNS identifier or an embedded `Info.plist`, macOS files the permission under a bundle ID, then looks for an app with that ID, finds none and refuses. The entry shows in System Settings with a folder icon, and turning it on does nothing.
+If System Settings shows a **scope** entry with a folder icon that does nothing when turned on, see [IMPLEMENTATION.md](IMPLEMENTATION.md#accessibility-permission).
 
 ## Commands
 
@@ -111,18 +113,7 @@ When the list comes out in the wrong order, `scope list` shows it as the switche
 
 ## How it works
 
-- **Which windows are on this Space** comes from the window server (`CGWindowListCopyWindowInfo`, on-screen only), which is public API and lists the tab that is up, never one that is swapped out. Native-fullscreen apps each occupy their own Space, so they correctly drop out of the list.
-- **Which of them are real windows, and their titles**, comes from Accessibility, asked fresh on every open, joined to the window server's list by window id. Only `AXStandardWindow` counts. That keeps out the invisible helper windows several apps park in every Space to render popups — Microsoft Teams keeps a 680×932 one titled literally "Window" — along with sheets and dialogs.
-- **Slow apps never stall the switcher.** Keys are handled on a thread of their own that never waits for anything, so ⌘Tab is never lost to the system switcher, however busy the machine is. Apps are asked for their windows in parallel, and any app that takes longer than 250ms is skipped and represented by its last answer. Electron apps and an Android emulator and IDE under a debug build are the usual slow ones.
-- **Most recently used** is kept by hand: an Accessibility observer per app stamps every focused-window change, which also fires for a native tab the app swaps in. App activation and deactivation stamp too, since a tab switched to by keyboard fires nothing else, and every Space switch deactivates something. Windows never seen used rank below every stamped one, in stacking order.
-- **A tab group is one row**, never one row per tab: the tabs behind the front one do not exist as far as Accessibility is concerned, so there is nothing to list and no way to target them. Cycle those with the app's own tab shortcuts. The row ranks by the newest use of any of its tabs — every hidden tab of the same app with the row's frame, on the Space it was used on — so using Terminal through one tab and then moving to another does not lose the first.
-- **Refocus after a Space switch.** Switching Spaces does not reliably move the keyboard with you: the app active on the Space you left stays active when it has nothing on the new one, so your last window is in front but not focused. Once the switch has settled (0.3s), scope focuses the window used last on the new Space, ranking by use from before the switch, since arriving stamps the window macOS brings forward. A focused window is left alone unless no app was activated around the switch and it belongs to the app that was already active, which means macOS carried that app over rather than you choosing the window. If scope has seen nothing used on that Space since it started, it leaves focus alone rather than guess. Set `refocus = false` to turn this off.
-- **Focusing** brings forward just the chosen window, through the same private SkyLight calls AltTab uses. If those calls are missing, scope activates the whole app instead.
-- **The overlay** draws app icons and titles rather than window thumbnails, which would need the Screen Recording permission. Accessibility is the only permission required.
-- **One persistent event tap** both opens the overlay and drives it. It swallows only the activation combination, <kbd>Tab</kbd> and <kbd>esc</kbd>; every other key passes untouched. A watchdog tears the overlay down after 10s without input, in case a modifier release is ever missed; every selection rearms it, so a slow decision with the mouse is not cut short.
-- **The pointer gets a second tap**, enabled only while the overlay is on screen, because `mouseMoved` fires continuously. Both halves of a click are swallowed so neither reaches the window underneath, and rows are hit-tested by the tap rather than by the overlay, which ignores the mouse so that it can never take focus from the window a click is about to hand it to.
-
-The private calls (`_AXUIElementGetWindow`, `_SLPSSetFrontProcessWithOptions`, `SLPSPostEventRecordTo`, `SLSGetActiveSpace`, `GetProcessForPID`) are all in `Sources/Scope/Private.swift`, looked up at run time, so a macOS update that removes one makes scope fall back instead of failing to launch. `scope status` reports which are available.
+Architecture, threads, the window list, recency, refocus, the service and every edge case found so far are in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 ## Changelog
 
