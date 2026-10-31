@@ -1,6 +1,6 @@
 # Scope
 
-Keyboard-first window switching on macOS, scoped to the current Space.
+Keyboard-first window switching on macOS, scoped to the current Space, and keyboard focus that follows you when you change Spaces.
 
 ## The problem
 
@@ -8,7 +8,13 @@ macOS <kbd>⌘</kbd> <kbd>Tab</kbd> switches *applications* across *all* Spaces.
 
 The closest native tool is Mission Control (three-finger swipe up, or <kbd>⌃</kbd> <kbd>↑</kbd>). It does show the current Space's windows, but you pick one by pointing at it. If you would rather not reach for gestures or the pointer to change windows, there is no native way to cycle the windows in this Space from the keyboard.
 
+Switching Spaces has a second problem: the keyboard does not always come with you. Arrive on a Space and the window you were working in is in front, yet what you type goes nowhere, or into a window you did not pick, because macOS kept the previous Space's app active. You have to click the window first.
+
 ## What this does
+
+scope does two things: a window switcher for the current Space, and focus that follows you when you change Spaces.
+
+### Window switcher
 
 Replaces the switcher with one that lists **windows** (not apps) from the **current Space only**, driven from the keyboard, with the pointer there when you would rather aim at the window you want than count Tabs to it.
 
@@ -33,6 +39,19 @@ The pointer works the same way, with <kbd>⌘</kbd> still held: hovering a row s
 This replaces the system application switcher outright, so <kbd>⌘</kbd> <kbd>Tab</kbd> no longer reaches windows in other Spaces. Set `modifier = alt` to leave the system switcher alone and run scope on <kbd>⌥</kbd> <kbd>Tab</kbd> alongside it.
 
 To cycle windows of the current app only, use the native <kbd>⌘</kbd> <kbd>`</kbd> — macOS already scopes that to the frontmost app and to the current Space, so scope does not rebind it.
+
+### Focus follows you across Spaces
+
+When you arrive on a Space, scope makes sure the keyboard goes to the window you last used there. You can type straight away, with no click first.
+
+It steps in in two cases, a moment after the switch settles:
+
+- **Nothing on the new Space has focus.** macOS keeps the previous Space's app active when it has no window here — Finder after a click on the desktop is the usual case — so your window is in front but not focused.
+- **macOS focused a window you did not pick.** When the app you just left also has a window on the new Space, macOS hands focus to that window instead of the one you were working in.
+
+It leaves focus alone when you chose where to go: a window clicked in the Dock, a notification, Mission Control, or scope's own switcher. It also leaves it alone on a Space where it has not yet seen you use any window, such as right after it starts, rather than guess. Set `refocus = false` to turn it off.
+
+### The service
 
 scope is a single binary run as a launchd service. It has no app bundle, Dock icon or menu bar: you control it with `scope start | stop | status | …` and configure it in a text file.
 
