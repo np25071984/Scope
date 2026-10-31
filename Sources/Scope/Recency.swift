@@ -1,12 +1,12 @@
 // Most-recently-used order, kept by hand.
 //
 // Every window that gains focus is stamped with the time. The sources are an
-// Accessibility observer per app for focused-window changes -- which, unlike
-// hs.window.filter, fires for any window including a native tab the app just
-// swapped in -- and app activation and deactivation from NSWorkspace.
-// Deactivation counts as use for the same reason it did in the Lua version:
-// a tab switched to by keyboard and then left is still the one the app names
-// as focused on the way out, and every Space switch deactivates something.
+// Accessibility observer per app for focused-window changes -- which fires for
+// any window, including a native tab the app just swapped in -- and app
+// activation and deactivation from NSWorkspace. Deactivation counts as use
+// because a tab switched to by keyboard fires nothing scope hears, yet it is
+// still the one the app names as focused on the way out, and every Space
+// switch deactivates something.
 //
 // All of it runs on a thread of its own. An app that is slow to answer holds
 // up the stamp for that app, never the key tap or the overlay.

@@ -21,7 +21,6 @@ Replaces the switcher with one that lists **windows** (not apps) from the **curr
 | hover a row | select it, without switching yet |
 | click a row | switch to that window |
 | click anywhere else | dismiss without switching |
-| <kbd>⌥</kbd> <kbd>⇧</kbd> <kbd>R</kbd> | reload this config |
 
 > <kbd>⌘</kbd> is the **Command** key, <kbd>⇧</kbd> is **Shift**, and <kbd>⌥</kbd> is **Option** — the one between Control and Command, printed `alt` on some keyboards.
 
@@ -29,145 +28,117 @@ Hold <kbd>⌘</kbd>, tab to the window you want, release to select. Press <kbd>e
 
 The pointer works the same way, with <kbd>⌘</kbd> still held: hovering a row selects it, so releasing <kbd>⌘</kbd> over a row switches to that one, and clicking it switches without waiting for the release. A click anywhere off the overlay dismisses it. Nothing about the overlay outlives the modifier — it is the same gesture either way, which is also how the system switcher behaves. Set `mouse = false` to turn the pointer off entirely.
 
-This replaces the system application switcher outright, so <kbd>⌘</kbd> <kbd>Tab</kbd> no longer reaches windows in other Spaces. Set `modifier = 'alt'` in `scope.lua` to leave the system switcher alone and run scope alongside it.
+This replaces the system application switcher outright, so <kbd>⌘</kbd> <kbd>Tab</kbd> no longer reaches windows in other Spaces. Set `modifier = alt` to leave the system switcher alone and run scope on <kbd>⌥</kbd> <kbd>Tab</kbd> alongside it.
 
 To cycle windows of the current app only, use the native <kbd>⌘</kbd> <kbd>`</kbd> — macOS already scopes that to the frontmost app and to the current Space, so scope does not rebind it.
 
-> **Preview: standalone `scope`.** A single binary that needs no Hammerspoon, runs as a launchd service with `scope start/stop/status`, and keeps ⌘Tab responsive while other apps are busy lives in [`app/`](app/README.md). The instructions below are for the Hammerspoon version, which remains the supported one for now.
+scope is a single binary run as a launchd service. It has no app bundle, Dock icon or menu bar: you control it with `scope start | stop | status | …` and configure it in a text file.
 
 ## Install
 
-```bash
-git clone https://github.com/np25071984/Scope.git
-cd scope && ./install.sh
-```
-
-Clone it wherever you keep source. `install.sh` resolves its own directory, so the symlink it creates points at whatever path you picked and nothing depends on the location — you can move the clone later and re-run it. If you have no preference, `~/.hammerspoon/scope` keeps the repo beside the config that loads it, in a directory that already exists once Hammerspoon is installed.
-
-`install.sh` installs Hammerspoon if it is missing, links `scope.lua` into `~/.hammerspoon`, adds a `require('scope')` line to `~/.hammerspoon/init.lua`, and starts or reloads it.
-
-scope is a module rather than the config itself, so it sits beside whatever you already run: the installer appends a fenced block to your `init.lua` instead of moving it out of the way, and creates that file only if it is not there. Running it twice adds nothing the second time.
-
-The link means the clone has to stay where it is — deleting it leaves `~/.hammerspoon/scope.lua` dangling and the `require` failing on load. In exchange, edits in the clone take effect on reload and `git pull` updates the running config. Run `./install.sh --copy` instead to copy the file, after which the clone can be deleted; updating then means cloning again.
-
-It uses Homebrew when Homebrew is present, because that keeps `brew upgrade` and `brew uninstall` working rather than leaving an app brew knows nothing about. Without Homebrew it falls back to the project's GitHub releases, so a missing package manager is never a blocker. Force the fallback with `./install.sh --no-brew`.
-
-Then grant Hammerspoon **Accessibility** permission: System Settings → Privacy & Security → Accessibility → enable Hammerspoon. Nothing works without it, and it fails silently. It is the only permission scope needs.
-
-### Autoload on startup
-
-- **The module** is loaded by Hammerspoon through `~/.hammerspoon/init.lua`, which it reads on every launch. The symlink means edits in this repo take effect on reload.
-- **Hammerspoon itself** registers as a macOS login item when something calls `hs.autoLaunch(true)`. That is a Hammerspoon-wide preference rather than scope's to set, so `scope.lua` does not touch it. An `init.lua` written by `install.sh` contains the call, commented for what it does; an `init.lua` that already existed is left to make its own call, and the installer says so rather than editing preferences you chose.
-
-Verify with `hs -c 'hs.autoLaunch()'`, which should print `true`. If it prints `false`, add `hs.autoLaunch(true)` to your `init.lua`.
-
-## Uninstall
+Needs macOS 13 or later and the Xcode command line tools.
 
 ```bash
-./uninstall.sh          # remove scope, leave Hammerspoon installed
-./uninstall.sh --all    # uninstall Hammerspoon and delete its data too
+./build.sh --install                       # ~/.local/bin/scope
+./build.sh --install --prefix /opt/scope   # /opt/scope/bin/scope
 ```
 
-`uninstall.sh` clears the login item, removes `~/.hammerspoon/scope.lua`, and takes the fenced block back out of `~/.hammerspoon/init.lua` — deleting that file too if the block was all it held, and leaving it otherwise. The fence is what makes that exact: everything between `-- scope:` and `-- end scope` goes, nothing else does, and a file with an opening marker but no closing one falls back to removing loose `require('scope')` lines rather than swallowing the remainder. It removes the module only when it is this repo's symlink or an unmodified copy of it, so anything you wrote yourself stays where it is.
+This builds and signs `scope`, installs it, writes `~/Library/LaunchAgents/io.github.np25071984.scope.plist` and starts the service. From then on it starts at every login, and launchd restarts it if it crashes.
 
-The login item is the part that is easy to miss by hand. `hs.autoLaunch(true)` writes a macOS setting rather than a line in the config, so deleting `scope.lua` on its own leaves Hammerspoon launching at every login with nothing to load. The script clears it first, while Hammerspoon is still around to clear it.
+On first start, scope asks for **Accessibility** permission, its only one, and opens the right pane of System Settings. Turn on **scope** there. If it is not listed, add the binary with **+** (⌘⇧G to type the path). The service checks every 5 seconds and starts by itself once allowed.
 
-`--all` uninstalls the app as well — through Homebrew when Homebrew installed it, so `brew` is not left tracking something that is gone — and deletes the preferences, caches and saved-state files. It keeps `~/.hammerspoon` when a config it did not write is still sitting there. One step is left to you afterwards, because macOS will not let a script do it: remove Hammerspoon from System Settings → Privacy & Security → Accessibility. That entry outlives the app, and a stale one silently re-authorises whatever is installed at the same path later.
+To update, pull and run `./build.sh --install` again; the service restarts on the new binary and keeps its permission. To remove it:
 
-Neither mode deletes the clone; the last line of output tells you where it is.
+```bash
+./build.sh --uninstall [--prefix P]   # stops it, removes the binary and the launchd file
+```
+
+`scope.conf` is left in place.
+
+### Signing, and why the permission can reset
+
+macOS ties the Accessibility permission to the binary's **path and signature**. Rebuilt and installed to the same path with the same certificate, scope keeps it. Installed somewhere else, or signed ad hoc, it needs granting again.
+
+`build.sh` signs with `$SCOPE_SIGN_IDENTITY`, else the first *Developer ID Application*, *Apple Development* or *Scope Dev* certificate in your keychain, else ad hoc. For local builds, create a self-signed certificate once: Keychain Access → Certificate Assistant → Create a Certificate…, name **Scope Dev**, type **Code Signing**. It does not need to be marked as trusted.
+
+The binary is signed with the plain identifier `scope` and carries no `Info.plist`. With a reverse-DNS identifier or an embedded `Info.plist`, macOS files the permission under a bundle ID, then looks for an app with that ID, finds none and refuses. The entry shows in System Settings with a folder icon, and turning it on does nothing.
+
+## Commands
+
+| Command | |
+|---|---|
+| `scope start` | start the service, writing its launchd file if it is missing or points at another binary |
+| `scope stop` | stop it; it starts again at the next login |
+| `scope restart` | restart it |
+| `scope reload` | re-read `scope.conf` (or send the service `SIGHUP`) |
+| `scope status` | launchd state, pid, permission, private-call availability, effective settings and config warnings. Exits 0 when running, 3 when not, 4 without permission. |
+| `scope logs` | follow the service's log; `scope logs --last 1h` shows the past hour |
+| `scope list` | the windows ⌘Tab would show, most recent first, each with when it was last used |
+| `scope list --direct` | read the windows in this process instead: stacking order, and it needs the terminal to have Accessibility permission |
+| `scope run` | the service in the foreground; what launchd runs |
+| `scope version` | |
+
+`status`, `list` and `reload` talk to the running service through a socket in the per-user temporary directory. That is deliberate: run from a shell, a command gets the terminal's Accessibility permission, not scope's, and only the service knows which windows were used when.
+
+`launchctl` sees the service like any other agent:
+
+```bash
+launchctl print gui/$UID/io.github.np25071984.scope
+launchctl kickstart -k gui/$UID/io.github.np25071984.scope
+```
+
+If scope is installed by a Homebrew formula, its agent is `homebrew.mxcl.scope`, owned by `brew services`. `scope start`, `stop` and `restart` then hand over to `brew services`, so the two never disagree.
 
 ## Configuration
 
-Everything configurable lives in the `scope.config` table at the top of `scope.lua`. Edit it, then press <kbd>⌥</kbd> <kbd>⇧</kbd> <kbd>R</kbd> to reload. That one is still <kbd>⌥</kbd>-based on purpose, so it does not move when you change `modifier`.
+`~/.config/scope/scope.conf`, or `$XDG_CONFIG_HOME/scope/scope.conf`. Every line is optional, and scope never writes the file.
 
-| Field | Meaning |
-|---|---|
-| `modifier` | the key you hold: `'alt'`, `'cmd'` or `'ctrl'` |
-| `activate` | pressed with the modifier to open and step forward |
-| `step` | keys that move the selection while the overlay is open |
-| `cancel` | keys that dismiss without switching |
-| `reload` | standalone hotkey, as `{ modifiers, key }` |
-| `mouse` | whether the pointer selects and clicks rows while the overlay is open |
-| `refocus` | whether switching Spaces focuses the window you last used there, when macOS leaves nothing focused |
-| `rowHeight`, `iconSize`, `padding`, `width`, `radius` | appearance |
+```ini
+modifier = cmd     # cmd replaces the system switcher; alt (⌥Tab) runs alongside it; ctrl
+mouse    = true    # hover selects a row, click switches, click elsewhere dismisses
+refocus  = true    # after a Space switch, focus the window last used there when macOS
+                   # leaves nothing focused, or only carried the previous app over
+trace    = false   # log every switcher decision
+```
 
-`modifier` drives both the activation hotkeys and the release-to-select detection, so changing it in one place is enough. Key names come from `hs.keycodes.map`; run `hs -c 'hs.inspect(hs.keycodes.map)'` for the full list.
+`#` starts a comment. Booleans take `true/false`, `yes/no`, `on/off` or `1/0`. A bad value or unknown key keeps the default for that line and is reported by `scope reload`, `scope status` and the log. Apply changes with `scope reload`.
 
-`modifier = 'cmd'` needs no system changes. The Dock owns <kbd>⌘</kbd> <kbd>Tab</kbd> and it is not one of the shortcuts System Settings can disable, so `hs.hotkey` cannot register it at all — it fails with "this hotkey is already registered". Scope therefore activates from an event tap, which sees keys before the Dock does and swallows the combination.
+## Diagnostics
 
-## Notes
+`scope logs` follows the service's log: start, permission, reloads and warnings. With `trace = true` it also shows each focus stamp, each list with its build time, apps that timed out, and every commit and refocus decision. Anything the service prints outside the log, such as a crash, goes to `~/Library/Logs/scope.log`.
 
-- The window filter is built once at load time rather than per keypress. It subscribes to focus events to maintain most-recently-used ordering, so rebuilding it on every press would lose that history and add a visible stall.
-- That most-recently-used order is a cache fed by focus-change notifications, so it can lag the truth by one switch when the overlay is opened immediately after a switch — the very case the quick toggle exists for. The list is cross-checked against `hs.window.focusedWindow()`, a live Accessibility query, and the focused window moved to the front before the overlay is drawn, which is enough to repair a one-event lag exactly.
-- `allowRoles = 'AXStandardWindow'` keeps helper windows out of the list. Several apps park invisible ones in every Space to render popups — Microsoft Teams' Notification Center keeps a 680×932 one titled literally "Window". They report subrole `AXDialog`, so restricting roles drops all of them at once rather than blacklisting apps by name as they turn up.
-- Native-fullscreen apps each occupy their own Space, so they correctly drop out of the list.
-- macOS native window tabbing — Terminal, Finder, Preview, anything that merges windows into a tab bar — gives every tab its own window but exposes only the frontmost one to Accessibility. A tab switch is therefore one window quietly replacing another, and it fires none of the created/destroyed events `hs.window.filter` maintains its cache from, so the cache keeps naming the tab that was up when it last heard anything. Left alone that showed the wrong title on the row and, on release, hauled that other tab in front of the one you actually left up. Scope reconciles the filter's list against each application's live window list before drawing, which costs ~10ms and leaves the most-recently-used ordering alone.
-- Closing the frontmost tab is the one swap that does fire an event — the closed tab's window is destroyed — but the tab that comes forward is still never registered, and the filter goes on treating the destroyed window as the application's focused one, so later activations never look again. With nothing left in the cache, the application has no row for reconciling to correct. A destroyed window therefore leaves a ghost entry at the rank it held, which reconciling swaps for the tab that is up now, or drops when there is none.
-- Reconciling fixes which tab a row names but not where the row ranks: the filter goes on ranking a tab group by the last time it saw the *stale* tab focused, and never hears about the tab you actually used, so a Terminal you left a moment ago could sink to the bottom of the list. Scope also stamps the front window of every application it sees activated, lets a swapped-in tab inherit its stale entry's time, and re-ranks the list by those times before drawing. A row ranks by the newest time anywhere in its tab group — every hidden tab of the same app with the row's frame, on the Space it was used on — so using Terminal through one tab and then moving to another does not lose the first. A tab you move to by keyboard is still never seen being used, so scope also stamps an application's focused window when the application loses activation — which every Space switch causes — since the application still names the tab that is up.
-- A tab group is always one row, never one row per tab. The tabs behind the front one do not exist as far as Accessibility is concerned, so there is nothing to list and no way to target them. Cycle those with the application's own tab shortcuts.
-- Switching Spaces does not reliably move the keyboard with you: the app active on the Space you left stays active when it has nothing on the new one — Finder after a click on the desktop is the usual case — so your last window is in front but not focused. Scope watches for Space changes and, once the switch has settled (0.3s), focuses the window the switcher would list first if nothing on the new Space has focus. It steps in only then, so a switch caused by choosing a window — a Dock click, a notification — is left alone. If scope has seen nothing used on that Space since it loaded — after a reload or a restart — it leaves focus alone rather than guess. The other case it cannot help: when the app active on the Space you left also has a window on the new one, macOS focuses that window and scope cannot tell it from one you picked. Set `refocus = false` to turn this off.
-- Electron apps (Slack, VS Code, Discord) are slow to answer Accessibility queries. If the switcher feels laggy, uncomment the `rejectApp` line.
-- The overlay is hand-rolled on `hs.canvas` rather than using `hs.window.switcher`. The built-in switcher lays itself out around window thumbnails, which need the Screen Recording permission, and it offers no way to cancel. Drawing icons and titles instead means Accessibility is the only permission required.
-- One persistent event tap both opens the overlay and drives it. It swallows only the activation combination, <kbd>Tab</kbd> and <kbd>esc</kbd>; every other key returns untouched. If the handler throws, Hammerspoon passes the event through, so a broken config degrades to the system switcher rather than to a dead keyboard. A watchdog tears the overlay down after 10s without input, in case a modifier release is ever missed; every selection rearms it, so a slow decision with the mouse is not cut short.
-- The pointer gets a second tap, started when the overlay is drawn and stopped when it goes away. `mouseMoved` fires continuously, and a switcher that is on screen a second at a time has no business running a callback on every mouse move for the rest of the day. Both halves of a click are swallowed, so neither reaches the window underneath — the overlay sits over somebody else's window, where a click is nearly always one you did not mean to make.
-- Rows are hit-tested arithmetically against the canvas frame rather than through `hs.canvas`'s own mouse tracking. That tracking needs `clickActivating` to be off, or a click brings Hammerspoon forward and takes the focus that is about to go to the target window; turning it off changes the canvas's `AXSubrole`, which this module would then have to keep out of its own window filter. Hit-testing in Lua leaves the canvas invisible to the mouse and to Accessibility alike.
-- When the list comes out in the wrong order, turn on the trace with `hs -c "package.loaded.scope.log.setLogLevel('debug')"` (and back with `'info'`). Each time the overlay opens, the Hammerspoon console then shows the list after every stage — the filter's cache, ghosts, reconcile, the focused-window fix — along with the focus, destroy and activation events and the swap or drop decisions that fed it, so the stage that moved a row can be read off directly. It is off by default because it costs an Accessibility query per window per stage, and it is switched at runtime rather than in `scope.config` so that turning it on does not reload away the history you want to see.
-- Reload stays an ordinary `hs.hotkey` rather than going through the tap, so it keeps working when the tap is the thing that broke.
-- `scope.lua` defines no globals and sets no Hammerspoon-wide preferences. It is required into somebody else's `init.lua`, where a stray global named `scope` or `spaceFilter` would collide silently, and where flipping `hs.menuIcon` or `hs.automaticallyCheckForUpdates` would override a deliberate choice. The module table is returned instead; `package.loaded` then holds the reference that keeps the two event taps and the reload hotkey from being collected, and `package.loaded.scope.filter` is the handle for poking at the window filter from the console.
+When the list comes out in the wrong order, `scope list` shows it as the switcher would, with each window's last use, so a window that was never seen used stands out.
+
+## How it works
+
+- **Which windows are on this Space** comes from the window server (`CGWindowListCopyWindowInfo`, on-screen only), which is public API and lists the tab that is up, never one that is swapped out. Native-fullscreen apps each occupy their own Space, so they correctly drop out of the list.
+- **Which of them are real windows, and their titles**, comes from Accessibility, asked fresh on every open, joined to the window server's list by window id. Only `AXStandardWindow` counts. That keeps out the invisible helper windows several apps park in every Space to render popups — Microsoft Teams keeps a 680×932 one titled literally "Window" — along with sheets and dialogs.
+- **Slow apps never stall the switcher.** Keys are handled on a thread of their own that never waits for anything, so ⌘Tab is never lost to the system switcher, however busy the machine is. Apps are asked for their windows in parallel, and any app that takes longer than 250ms is skipped and represented by its last answer. Electron apps and an Android emulator and IDE under a debug build are the usual slow ones.
+- **Most recently used** is kept by hand: an Accessibility observer per app stamps every focused-window change, which also fires for a native tab the app swaps in. App activation and deactivation stamp too, since a tab switched to by keyboard fires nothing else, and every Space switch deactivates something. Windows never seen used rank below every stamped one, in stacking order.
+- **A tab group is one row**, never one row per tab: the tabs behind the front one do not exist as far as Accessibility is concerned, so there is nothing to list and no way to target them. Cycle those with the app's own tab shortcuts. The row ranks by the newest use of any of its tabs — every hidden tab of the same app with the row's frame, on the Space it was used on — so using Terminal through one tab and then moving to another does not lose the first.
+- **Refocus after a Space switch.** Switching Spaces does not reliably move the keyboard with you: the app active on the Space you left stays active when it has nothing on the new one, so your last window is in front but not focused. Once the switch has settled (0.3s), scope focuses the window used last on the new Space, ranking by use from before the switch, since arriving stamps the window macOS brings forward. A focused window is left alone unless no app was activated around the switch and it belongs to the app that was already active, which means macOS carried that app over rather than you choosing the window. If scope has seen nothing used on that Space since it started, it leaves focus alone rather than guess. Set `refocus = false` to turn this off.
+- **Focusing** brings forward just the chosen window, through the same private SkyLight calls AltTab uses. If those calls are missing, scope activates the whole app instead.
+- **The overlay** draws app icons and titles rather than window thumbnails, which would need the Screen Recording permission. Accessibility is the only permission required.
+- **One persistent event tap** both opens the overlay and drives it. It swallows only the activation combination, <kbd>Tab</kbd> and <kbd>esc</kbd>; every other key passes untouched. A watchdog tears the overlay down after 10s without input, in case a modifier release is ever missed; every selection rearms it, so a slow decision with the mouse is not cut short.
+- **The pointer gets a second tap**, enabled only while the overlay is on screen, because `mouseMoved` fires continuously. Both halves of a click are swallowed so neither reaches the window underneath, and rows are hit-tested by the tap rather than by the overlay, which ignores the mouse so that it can never take focus from the window a click is about to hand it to.
+
+The private calls (`_AXUIElementGetWindow`, `_SLPSSetFrontProcessWithOptions`, `SLPSPostEventRecordTo`, `SLSGetActiveSpace`, `GetProcessForPID`) are all in `Sources/Scope/Private.swift`, looked up at run time, so a macOS update that removes one makes scope fall back instead of failing to launch. `scope status` reports which are available.
 
 ## Changelog
 
-### 1.2.2 — 2026-10-13
+### 2.1.0 — 2026-10-31
 
-Switching back to a Space now focuses the Terminal tab you were actually working in. 1.2.1 still missed a tab switched to by keyboard, since that fires no event scope hears, so Terminal ranked as unused and VS Code took the focus. scope now records an application's focused window whenever the application loses activation, which every Space switch causes. Refocus also no longer guesses on a Space where nothing has been used since scope loaded: it used to pick an arbitrary window there, and now leaves focus alone.
+scope is now a single `scope` binary run as a launchd service instead of Scope.app. Install with `./build.sh --install`, which puts it in `~/.local/bin` by default (`--prefix` to change), starts it, and has launchd start it at login and restart it after a crash. The menu bar is gone: settings move from user defaults to `~/.config/scope/scope.conf`, and `scope start | stop | restart | reload | status | logs | list` replace the menu. `scope list` now asks the running service, so it shows the switcher's own order with each window's last use, and no longer needs the terminal to have Accessibility permission. The *Enabled* switch is gone (`scope stop`), and so are *Launch at Login* and *Hide Menu Bar Icon*. The service checks for Accessibility permission every 5 seconds instead of showing an alert. `build.sh` now also finds a self-signed certificate that is not marked as trusted, which it used to skip, falling back to ad-hoc signing.
 
-### 1.2.1 — 2026-10-12
+Upgrading from 2.0.x: quit Scope.app, delete `/Applications/Scope.app`, run `./build.sh --install`, and grant **scope** Accessibility permission. Settings are not carried over; set them again in `scope.conf`.
 
-Switching back to a Space no longer focuses the wrong window when you last worked there in a tabbed app. If you used Terminal through one tab and then moved to another, scope lost track of the first, so Terminal ranked as untouched for hours and a Space switch handed focus to VS Code instead. The ⌘Tab list sank Terminal the same way. A tab group now ranks by the most recent use of any of its tabs. scope also logs a warning when its key handler runs slow enough that macOS may hand ⌘Tab to the system switcher, and the trace shows how long each list took to build.
+### 2.0.1 — 2026-10-31
 
-### 1.2.0 — 2026-10-11
+Switching to a Space now focuses the window you last used there, even when the app you left also has a window on that Space. macOS focuses that app's window on arrival, and scope used to treat it as your choice and leave it. scope now recognises this case because no app was activated around the switch, and it ranks windows by their use from before the switch, since arriving stamps the carried-over window as used. A window you pick from the Dock, a notification or Mission Control is still left alone.
 
-Switching Spaces now brings the keyboard with you. macOS often leaves the previous Space's app active on arrival, so the Terminal you were working in came back in front but unfocused, and typing went nowhere until a ⌘Tab. scope now focuses the window you last used on a Space when you switch to it and nothing there has focus. Set `refocus = false` to turn it off.
+### 2.0.0
 
-### 1.1.2 — 2026-10-10
-
-A tabbed application you used a moment ago no longer sinks to the bottom of the switcher. The window filter ranks a tab group by the last time it saw one particular tab focused, and bringing the application forward on any other tab tells it nothing — so Terminal, left a few seconds earlier, could rank below windows untouched for minutes. scope now notes the front window of every application it sees activated, carries a row's history over when a different tab takes its place, and orders the list by that before drawing.
-
-Added a debug trace for when the order comes out wrong anyway. `hs -c "package.loaded.scope.log.setLogLevel('debug')"` turns it on without a reload, and the Hammerspoon console then shows the list after every stage of building it, along with the events and decisions that fed each one.
-
-### 1.1.1 — 2026-10-10
-
-Closing the front tab of a tabbed application no longer drops the application from the switcher. The tab that came forward was never registered by the window filter, and with the closed one gone the application had no row left — Terminal with a single window of tabs simply vanished from the list. A closed window now leaves a placeholder at its place in the most-recently-used order, filled by whichever tab is up now, so the application stays where you left it.
-
-### 1.1.0 — 2026-09-21
-
-A quick press-and-release now reliably toggles back to the window you just came from. The filter's most-recently-used order is a cache fed by focus-change notifications, and a second press straight after the first could read it before the notification for that first switch had been processed — leaving the window you were on ranked second and the one you wanted first, so the overlay skipped past it and reaching it took a lap through the whole list. The list is now checked against `hs.window.focusedWindow()`, a live query rather than a cache, and the focused window moved to the front before the overlay is drawn.
-
-### 1.0.0 — 2026-09-18
-
-The overlay now answers the mouse. Hovering a row selects it, clicking one switches to that window, and clicking anywhere else dismisses without switching — all with <kbd>⌘</kbd> still held, so the pointer is an alternative to counting Tabs rather than a second mode with its own rules. Set `mouse = false` to leave it keyboard-only.
-
-The watchdog is now rearmed on every selection rather than running down from the moment the overlay opened, so picking a row with the mouse is not cut off after ten seconds.
-
-### 0.0.4 — 2026-09-17
-
-scope is now a module at `~/.hammerspoon/scope.lua`, loaded by a fenced `require('scope')` block the installer appends to your `init.lua`, rather than being `init.lua` itself. Installing no longer moves an existing config aside, and `install.sh` migrates a 0.0.3 install in place, restoring the config it had backed up.
-
-Following from that, the module now behaves like a guest: no globals, no `hs.autoLaunch`/`hs.menuIcon`/`hs.automaticallyCheckForUpdates` imposed on the host config, and no alert on every reload. Those preferences are written into an `init.lua` that `install.sh` creates, where they are visible and editable, and left alone in one that already existed.
-
-Added `uninstall.sh`, which reverses all of it and optionally removes Hammerspoon as well.
-
-### 0.0.3 — 2026-09-16
-
-Switching back to a tabbed application now lands on the tab you left up. Under macOS native window tabbing each tab is its own window and only the frontmost is visible to Accessibility, so a tab switch swapped the window out from under the switcher without any event to notice it by: the row carried a stale title, and releasing the modifier pulled that stale tab to the front. The window list is now reconciled against each application's live windows before the overlay is drawn.
-
-### 0.0.2 — 2026-09-16
-
-The default modifier is now <kbd>⌘</kbd>, so scope replaces the system application switcher rather than sitting beside it. Activation moved from `hs.hotkey` to the event tap that already drove the open overlay: the Dock owns <kbd>⌘</kbd> <kbd>Tab</kbd> and refuses to register it as a hotkey, and it is not a shortcut System Settings can disable, but event taps see keys before the Dock does. Set `modifier = 'alt'` to keep the system switcher and run scope alongside it.
-
-### 0.0.1 — 2026-09-15
-
-First release. <kbd>⌥</kbd> <kbd>Tab</kbd> cycles windows of the current Space in a canvas overlay of app icons and titles, <kbd>esc</kbd> dismisses it, and releasing <kbd>⌥</kbd> switches. Accessibility is the only permission required, and Hammerspoon starts at login.
+First native build, Scope.app. Versions 0.0.1 to 1.2.2 were a scripted predecessor; they remain in the git history.
 
 ## License
 

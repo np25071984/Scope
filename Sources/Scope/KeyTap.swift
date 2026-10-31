@@ -1,12 +1,11 @@
 // The event taps, on a thread of their own.
 //
-// This is the fix for the switcher that loses ⌘Tab to the Dock under load. In
-// Hammerspoon the tap's handler shared the one Lua thread with building the
-// window list, so a slow app could hold the handler past macOS's deadline, and
-// the key went on to the Dock. Here the handler only decides -- swallow or pass,
-// and which action to post to the main thread -- and returns at once. Building
-// the list happens afterwards, on the main thread, with the key already
-// swallowed.
+// macOS gives a tap's handler a deadline. A handler that misses it -- say,
+// because it waits on a slow app while building the window list -- loses the
+// key to the Dock, and the system switcher comes up. So the handler only
+// decides -- swallow or pass, and which action to post to the main thread --
+// and returns at once. Building the list happens afterwards, on the main
+// thread, with the key already swallowed.
 //
 // The decision needs to know whether the switcher is open before the overlay
 // exists: Tab pressed again, or ⌘ released, while the list is still being built

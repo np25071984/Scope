@@ -6,10 +6,10 @@
 // windows, and what they are called, comes from Accessibility. The two are
 // joined on the window-server id.
 //
-// That join is what the Lua version had to repair after the fact. A native tab
-// that is swapped out is not on screen, so it never makes the list; the tab
-// that is up always does, under its own title. There is no cache of windows to
-// go stale, so the ghost and reconcile stages have nothing to do here.
+// Native tabs are why it works this way. A tab that is swapped out is not on
+// screen, so it never makes the list; the tab that is up always does, under
+// its own title. There is no cache of windows to go stale when an app swaps
+// one tab for another without telling anyone.
 
 import AppKit
 import ApplicationServices

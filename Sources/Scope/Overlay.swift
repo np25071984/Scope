@@ -1,9 +1,8 @@
 // The switcher overlay: a vertical list of app icons and window titles.
 //
 // A borderless, non-activating panel that ignores the mouse. The pointer is
-// handled by KeyTap's hit-testing instead, the way the Lua version did it,
-// because a panel that took clicks could take focus from the window the click
-// is about to hand it to.
+// handled by KeyTap's hit-testing instead, because a panel that took clicks
+// could take focus from the window the click is about to hand it to.
 
 import AppKit
 

@@ -9,7 +9,7 @@ import Foundation
 
 // Maps an Accessibility window to its window-server id, which is what ties the
 // AX world (titles, subroles, focusing) to the CGWindowList one (Spaces,
-// z-order). Exported by HIServices; Hammerspoon and AltTab use it too.
+// z-order). Exported by HIServices; AltTab uses it too.
 @_silgen_name("_AXUIElementGetWindow")
 func _AXUIElementGetWindow(_ element: AXUIElement, _ id: UnsafeMutablePointer<CGWindowID>) -> AXError
 
@@ -72,7 +72,7 @@ enum SkyLight {
         guard setFrontProcess(&psn, window, 0x200) == .success else { return false }
 
         // A synthesized "make key window" event record, the same bytes AltTab
-        // and Hammerspoon post: without it the process comes forward but key
+        // posts: without it the process comes forward but key
         // focus can stay on whichever of its windows had it before.
         var bytes = [UInt8](repeating: 0, count: 0xf8)
         bytes[0x04] = 0xf8
