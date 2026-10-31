@@ -158,7 +158,7 @@ The decision logic is covered by tests: `swift test`.
 
 ## Changelog
 
-### Unreleased
+### 2.2.0 — 2026-10-31
 
 scope is now installed from a prebuilt release, with no sources needed: `curl -fsSL https://raw.githubusercontent.com/np25071984/Scope/main/install.sh | sh`. Running it again upgrades, and the permission is kept. Releases run on Apple Silicon and Intel, and are signed with scope's release certificate, which the installer checks. New `scope uninstall` removes scope without the sources. `./build.sh --install` is now for working on scope.
 
