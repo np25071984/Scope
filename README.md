@@ -55,6 +55,16 @@ It leaves focus alone when you chose where to go: a window clicked in the Dock, 
 
 scope is a single binary run as a launchd service. It has no app bundle, Dock icon or menu bar: you control it with `scope start | stop | status | …` and configure it in a text file.
 
+## Is scope for you?
+
+scope is a tiny open-source tool: one 417 KB binary that does two things, a window switcher for the current Space and focus that follows you across Spaces. There is no app and no UI beyond the switcher itself. It runs as a background service you control from the terminal, and you configure it in a text file. It is built from source, with no installer, no automatic updates and no paid support.
+
+It may not be what you want:
+
+- **You want a UI**, with window thumbnails or windows from every Space: use [AltTab](https://alt-tab.app/). It is free and open source, with optional paid features.
+- **You would rather pay** for a commercial switcher that comes with vendor support: look at [Witch](https://manytricks.com/witch/) or [Contexts](https://contexts.co/).
+- **You only switch now and then:** macOS already has Mission Control (three-finger swipe up, or <kbd>⌃</kbd> <kbd>↑</kbd>) and <kbd>⌘</kbd> <kbd>`</kbd> for the windows of the frontmost app.
+
 ## Install
 
 Needs macOS 13 or later and the Xcode command line tools.
