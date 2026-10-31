@@ -89,11 +89,12 @@ Releases are signed with scope's own self-signed certificate, not an Apple Devel
 
 ```bash
 brew tap np25071984/scope https://github.com/np25071984/Scope
+brew trust np25071984/scope
 brew install scope
 brew services start scope
 ```
 
-Then turn on **scope** in Accessibility; if it is not listed, add `$(brew --prefix)/var/scope/scope`, which is the copy the service runs. Upgrade with `brew upgrade scope && brew services restart scope`; the permission is kept. Remove with `brew services stop scope && brew uninstall scope && rm -rf $(brew --prefix)/var/scope`.
+Homebrew loads formulae from a tap only once you trust it, hence `brew trust`. Then turn on **scope** in Accessibility; if it is not listed, add `$(brew --prefix)/var/scope/scope`, which is the copy the service runs. Upgrade with `brew upgrade scope && brew services restart scope`; the permission is kept. Remove with `brew services stop scope && brew uninstall scope && rm -rf $(brew --prefix)/var/scope`.
 
 Use either Homebrew or the installer, not both: both would take ⌘Tab. To switch from the installer, run `scope uninstall` first.
 
@@ -109,7 +110,7 @@ For working on scope. Needs the Xcode command line tools.
 swift test                                 # the decision logic
 ```
 
-macOS ties the Accessibility permission to the binary's **path and signature**. Rebuilt and installed to the same path with the same certificate, scope keeps it. Installed somewhere else, signed ad hoc, or swapped between a local build and a release (each signed with a different certificate), it needs granting again.
+macOS ties the Accessibility permission to the binary's **path and signature**. Rebuilt and installed to the same path with the same certificate, scope keeps it. Installed somewhere else, signed ad hoc, or swapped between a local build and a release (each signed with a different certificate), it needs granting again. An entry already in the list for that path does not carry over to a binary signed differently, even when it is switched on: remove it with **−** and add the binary again with **+**.
 
 `build.sh` signs with `$SCOPE_SIGN_IDENTITY`, else the first *Developer ID Application*, *Apple Development* or *Scope Dev* certificate in your keychain, else ad hoc. For local builds, create a self-signed certificate once: Keychain Access → Certificate Assistant → Create a Certificate…, name **Scope Dev**, type **Code Signing**. It does not need to be marked as trusted.
 
@@ -172,7 +173,7 @@ The decision logic is covered by tests: `swift test`.
 
 ### 2.3.0 — 2026-10-31
 
-scope can be installed with Homebrew: `brew tap np25071984/scope https://github.com/np25071984/Scope`, `brew install scope`, `brew services start scope`. The formula installs the signed release, and its service runs a copy at a path that stays the same across versions, so `brew upgrade` keeps the Accessibility permission. `scope start`, `stop` and `restart` hand over to `brew services` when Homebrew installed scope, and `scope status` recognises Homebrew 7's service label, `sh.brew.scope`. When scope needs the permission, it names the file to allow: the copy the service runs.
+scope can be installed with Homebrew: `brew tap np25071984/scope https://github.com/np25071984/Scope`, `brew trust np25071984/scope`, `brew install scope`, `brew services start scope`. The formula installs the signed release, and its service runs a copy at a path that stays the same across versions, so `brew upgrade` keeps the Accessibility permission. `scope start`, `stop` and `restart` hand over to `brew services` when Homebrew installed scope, and `scope status` recognises Homebrew 7's service label, `sh.brew.scope`. When scope needs the permission, it names the file to allow: the copy the service runs.
 
 ### 2.2.0 — 2026-10-31
 

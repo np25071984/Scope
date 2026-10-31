@@ -94,6 +94,8 @@ Re-check the *believed* ones before relying on them, and all of them after a maj
 - **F31.** Homebrew installs each version of a formula into its own Cellar directory (`Cellar/scope/<version>`), so the binary's real path changes with every upgrade. `var` is shared by all versions. *(observed)*
 - **F32.** Homebrew 7 labels a formula's service `sh.brew.<name>`; services started by older versions keep `homebrew.mxcl.<name>`. `brew services stop` removes the agent's file. `brew upgrade` and `brew reinstall` do not restart a running service. *(observed)*
 - **F33.** A formula that installs a prebuilt, signed binary with `bin.install` leaves it byte for byte as released, signature intact. *(observed)*
+- **F34.** Homebrew 7 refuses to load a formula from a third-party tap until the user runs `brew trust <tap>`. *(observed)*
+- **F35.** An Accessibility entry for a path stays switched on when a binary signed with another certificate replaces the one at that path, but does not apply to it: `AXIsProcessTrusted` stays false until the entry is removed and the binary added again. *(observed)*
 
 ## Non-goals and known gaps
 
@@ -325,7 +327,7 @@ Commands:
 
 `brew services` owns the service when its agent file exists (`sh.brew.scope`, or `homebrew.mxcl.scope` from older Homebrew **[F32]**), or when the binary itself is Homebrew's: in a Cellar, or the service's copy in `var/scope` (rules **specified by** `ServiceTests.swift`). The path check matters because `brew services stop` removes the agent file **[F32]**; without it, `scope start` would create scope's own agent pointing into the versioned Cellar. Start, stop and restart then run `brew services <cmd> scope`, status reads that label, and `uninstall` refuses with the Homebrew commands. Warn if both kinds of agent are loaded: two copies would both take ⌘Tab.
 
-The formula, `Formula/scope.rb` in this repository (tapped with `brew tap np25071984/scope https://github.com/np25071984/Scope`), installs the signed release tarball rather than building from source, which would sign ad hoc **[F24, F33]**. Its post-install steps copy the binary to `var/scope/scope`, replacing the old copy rather than rewriting it **[F27]**, and its service runs that copy: a path that stays the same across versions **[F31]**, with the release signature, so `brew upgrade` keeps the permission. The service is not restarted by an upgrade **[F32]**; the formula's caveats say to run `brew services restart scope`.
+The formula, `Formula/scope.rb` in this repository (tapped with `brew tap np25071984/scope https://github.com/np25071984/Scope`), installs the signed release tarball rather than building from source, which would sign ad hoc **[F24, F33]**. Its post-install steps copy the binary to `var/scope/scope`, replacing the old copy rather than rewriting it **[F27]**, and its service runs that copy: a path that stays the same across versions **[F31]**, with the release signature, so `brew upgrade` keeps the permission. Users trust the tap before installing **[F34]**. The service is not restarted by an upgrade **[F32]**; the formula's caveats say to run `brew services restart scope`.
 
 ### Logging
 
