@@ -1,3 +1,11 @@
 .DS_Store
 .build/
 build/
+
+# Signing material. The certificate's private key belongs in the keychain only.
+*.p12
+*.pfx
+*.pem
+*.key
+*.cer
+*.mobileprovision

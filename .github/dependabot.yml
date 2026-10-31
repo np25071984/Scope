@@ -1,0 +1,10 @@
+# scope has no package dependencies. This keeps the pinned GitHub Actions
+# current, as commit hashes Dependabot can bump.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: CI
