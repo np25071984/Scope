@@ -4,6 +4,8 @@ A specification for building scope from nothing. It states what scope must do, t
 
 [README.md](README.md) covers using scope. The code in `Sources/Scope` is one implementation of this document.
 
+The decision logic is specified by tests rather than prose: the key tap's state machine, recency and ranking, the refocus decision, selection, the config grammar and the launchd file. Where a section says **Specified by** a test file, the test names state each rule and its reason, and `swift test` checks them. This document keeps what tests cannot reach: what macOS does, and how the pieces are wired to it.
+
 ## Required behaviour
 
 **Switcher**
@@ -149,10 +151,10 @@ flowchart LR
 | Daemon | `Daemon.swift` | The service process: config, permission, signals, socket answers |
 | Control | `Control.swift` | Unix socket, client and server |
 | Config | `Config.swift` | `scope.conf` parser |
-| Switcher | `Switcher.swift` | The switcher's state; refocus after a Space switch |
+| Switcher | `Switcher.swift` | The switcher's state; refocus after a Space switch (`Refocus`) |
 | KeyTap | `KeyTap.swift` | Event taps and the open/closed decision |
 | WindowLister | `Windows.swift` | The current Space's windows |
-| Recency | `Recency.swift` | Last-used stamps and ranking |
+| Recency | `Recency.swift`, `Stamps.swift` | Last-used stamps: observers in `Recency`, the table and ranking in `StampTable` |
 | Overlay | `Overlay.swift` | Drawing the list |
 | Focus | `Focus.swift` | Bringing one window forward |
 | SkyLight | `Private.swift` | Every private symbol |
@@ -178,33 +180,13 @@ Two taps on the `scope.tap` thread, created at start **[F1]**:
 - **keys**: `keyDown` and `flagsChanged`, always enabled.
 - **pointer**: `mouseMoved`, `leftMouseDragged`, `leftMouseDown`, `leftMouseUp`. Created disabled; enabled only while the overlay is on screen **[F4]**.
 
-The tap, not the overlay, owns whether the switcher is open. It flips `open` the moment it swallows the activation, before any list exists, so keys that arrive while the list is still being built step or commit instead of opening a second switcher. Every opening gets a new `session` number. Calls back from main (`shown`, `closed`) carry the session and are ignored if it is stale, so a commit still being carried out cannot close the switcher the next ⌘Tab just opened.
+The tap's decisions live in `KeyTap.State`, a value with no CGEvent, lock or thread: which events are swallowed and what they mean, opening, stepping, committing and cancelling by key or pointer, sessions, and row hit-testing **[F3, F4, F5]**. **Specified by** `Tests/scopeTests/KeyTapTests.swift`.
 
-```mermaid
-stateDiagram-v2
-    [*] --> Closed
-    Closed --> Open: modifier + Tab / swallow, post show(delta, session)
-    Open --> Open: Tab or ⇧Tab / swallow, post step(±1)
-    Open --> Open: pointer over row / pass, post select(row)
-    Open --> Closed: modifier released / pass, post commit
-    Open --> Closed: esc / swallow, post cancel
-    Open --> Closed: click on row / swallow, post pick(row)
-    Open --> Closed: click elsewhere / swallow, post cancel
-    Open --> Closed: closed(session) from main
-```
+The class around it:
 
-Callback rules:
-
-- `tapDisabledByTimeout` / `tapDisabledByUserInput`: re-enable the keys tap, and the pointer tap if the overlay is up **[F2]**.
-- `flagsChanged` without the modifier while open: commit. The event itself passes **[F3]**.
-- `keyDown` while open: Tab (keycode 48) steps (Shift reverses), Escape (53) cancels; both swallowed. Any other key passes.
-- `keyDown` while closed: Tab with the modifier opens; anything else passes.
-- `mouseMoved` / `leftMouseDragged`: never swallowed **[F4]**; select the row under the pointer.
-- `leftMouseDown` while open with geometry known: swallowed, so it never reaches the window underneath. The decision waits for the release.
-- `leftMouseUp` while open: swallowed; the row under the pointer is picked, or the switcher is cancelled.
-- State (`open`, `session`, `modifier`, `mouse`, `geometry`) is guarded by one lock, held only for the decision.
-
-Row hit-testing is arithmetic, in global top-left coordinates **[F5]**: `row = floor((y − frame.minY − padding) / rowHeight)`, if the point is inside the frame and the row exists.
+- converts each CGEvent to a `KeyTap.Input` (flags, key code, location), runs `State.handle` under one lock, turns the pointer tap off when the output says the switcher closed, posts the action to main, and swallows or passes;
+- on `tapDisabledByTimeout` / `tapDisabledByUserInput`, re-enables the keys tap, and the pointer tap if the overlay is up **[F2]**;
+- `shown` and `closed` from main go through `State` too, and switch the pointer tap on or off as it answers.
 
 ## WindowLister
 
@@ -229,63 +211,25 @@ A table `window id → Stamp { at, previous, pid, frame, space }`, `at` in `syst
 - `didDeactivateApplicationNotification`. A tab switched to by keyboard may announce nothing, but the app still names it as focused on the way out, and every Space switch deactivates something **[F9, F20]**.
 - the frontmost app once at start.
 
-**Bursts.** One switch stamps the same window several times within milliseconds (activated, focus changed, deactivated). Each stamp keeps `previous` = the newest use at least `history` (1s) older than itself:
-
-```
-old = stamps[id]
-previous = old == nil ? nil : (now − old.at ≥ 1s ? old.at : old.previous)
-stamps[id] = Stamp(at: now, previous, pid, frame, space)
-if stamps.count > 1024: keep the 512 newest
-```
-
-`stamp.before(cutoff)` is the stamp as it stood at `cutoff`: itself if `at < cutoff`, else `previous` if that is `< cutoff`, else nothing.
-
-**Ranking** `rank(windows, before: cutoff = ∞)`:
-
-```
-for each window w:
-    used(w) = stamps[w.id].before(cutoff).at
-    for each other stamp s with s.id not on screen, s.pid == w.pid,
-        s.space == active Space, frames equal within 2pt:     # hidden tabs of w's tab group [F9, F12]
-        used(w) = max(used(w), s.at)
-sort: by used descending; any used before none; ties and never-used by z ascending
-```
-
-A tab group therefore ranks by the newest use of any of its tabs.
+**The table and the ranking** are `StampTable`, a value with no Accessibility, lock or clock: recording a use, the use from before a burst of stamps, looking before a cutoff, the size limit, removing an app, most-recently-used order with never-used windows last in stacking order, and tab groups ranked by their newest tab **[F9, F12]**. **Specified by** `Tests/scopeTests/StampTableTests.swift`. `Recency` holds it under a lock and ranks with the active Space **[F22]**.
 
 ## Switcher
 
 All on main.
 
-**`currentWindows()`** = `recency.rank(lister.currentSpace())`, then the focused window (a live query: frontmost app's `kAXFocusedWindowAttribute`) moved to the front **[F15]**. The stamps may not yet know about a switch made a moment ago; without this, the window you are on can rank second, and the quick toggle lands on the window you are already in.
+**`currentWindows()`** = `recency.rank(lister.currentSpace())` with the live focused window (frontmost app's `kAXFocusedWindowAttribute`) moved to the front **[F15]**. The selection rules (first row selected, wrapping) and moving the focused window first are **specified by** `Tests/scopeTests/SwitcherTests.swift`.
 
-**show(delta, session):** if already visible, step instead. Build the list; if fewer than 2 windows, tell the tap `closed(session)` and stop. Select row 1 (forward) or the last row (backward). Rows: title (or `(untitled)`), the app's `localizedName`, the app's icon (cached per pid, dropped on terminate). Show the overlay on the screen containing the centre of the first window, then `tap.shown(geometry, session)`. Arm the watchdog.
+**show(delta, session):** if already visible, step instead. Build the list; if fewer than 2 windows, tell the tap `closed(session)` and stop. Rows: title (or `(untitled)`), the app's `localizedName`, the app's icon (cached per pid, dropped on terminate). Show the overlay on the screen containing the centre of the first window, then `tap.shown(geometry, session)`. Arm the watchdog.
 
-**step(delta):** `index = (index + delta) mod count`. **select(row):** update the highlight, rearm the watchdog. **commit:** hide, then `Focus.window(selected)`. **cancel:** hide. Hiding always calls `tap.closed(session)`.
+**select(row):** update the highlight, rearm the watchdog. **commit:** hide, then `Focus.window(selected)`. **cancel:** hide. Hiding always calls `tap.closed(session)`.
 
 **Watchdog:** 10s without interaction tears the overlay down, in case a modifier release is ever missed. Rearmed on every selection, so choosing slowly with the mouse is not cut off.
 
 ### Refocus after a Space switch
 
-State: `spaceChangedAt`, `lastActivation`, `refocused = (pid, at)`.
+The decision is `Refocus`, a value with no clock or Accessibility: when to override focus, when a focused window counts as chosen, ignoring scope's own activation, ranking by use from before the switch, and never guessing on a Space with no recorded use **[F19, F20, F21]**. **Specified by** `Tests/scopeTests/RefocusTests.swift`.
 
-- On `didActivateApplicationNotification`: ignore it if it is the app scope itself just refocused within 0.5s; otherwise `lastActivation = now`.
-- On `activeSpaceDidChangeNotification` (if `refocus` is on): `spaceChangedAt = now`, and (re)start a 0.3s timer so the switch settles **[F19]**.
-
-When the timer fires, unless the overlay is up:
-
-```
-cutoff = spaceChangedAt − 1s                 # the animation precedes the notification and stamps windows [F20]
-here   = recency.rank(lister.currentSpace(), before: cutoff)
-focused = live focused window
-if focused is in here:
-    carried = lastActivation < cutoff and focused.pid == frontmost app pid     # [F21]
-    if not carried or here.first == focused: return                            # chosen, or already right
-target = here.first
-if target == nil or target has no stamp before cutoff: return                   # never seen used: don't guess
-refocused = (target.pid, now)
-Focus.window(target)
-```
+Wiring, in `Switcher`: `didActivateApplicationNotification` feeds `Refocus.activated`. `activeSpaceDidChangeNotification` (if `refocus` is on) feeds `Refocus.spaceChanged` and (re)starts a `Refocus.settle` (0.3s) timer, so the switch settles first. When it fires, unless the overlay is up: rank this Space's windows before `Refocus.cutoff`, ask `decide` with the live focused window and the frontmost app, and on `.focus` record `refocusing` and call `Focus.window`.
 
 ## Focus
 
@@ -342,9 +286,7 @@ All in one file, looked up with `dlsym` (the SkyLight framework handle, then `RT
 
 `$XDG_CONFIG_HOME/scope/scope.conf` if that is an absolute path, else `~/.config/scope/scope.conf`. Never written.
 
-- Lines are `key = value`; `#` starts a comment anywhere; blank lines ignored; keys case-insensitive.
-- `modifier` = `cmd` | `alt` | `ctrl` (default `cmd`); `mouse`, `refocus` (default `true`); `trace` (default `false`). Booleans accept `true/false`, `yes/no`, `on/off`, `1/0`.
-- A malformed line, bad value or unknown key keeps the default for that line and becomes a warning, logged and shown by `status` and `reload`. A missing file means all defaults.
+The grammar, settings, defaults and warnings are **specified by** `Tests/scopeTests/ConfigTests.swift`. Warnings are logged and shown by `status` and `reload`.
 
 ### Control socket
 
@@ -363,15 +305,7 @@ Commands run from a shell must go through the socket: they have the terminal's p
 
 Label `io.github.np25071984.scope`, file `~/Library/LaunchAgents/<label>.plist`, domain `gui/<uid>`.
 
-| Key | Value | Why |
-|---|---|---|
-| `ProgramArguments` | `[<this binary, symlinks resolved>, "run"]` | the permission is tied to the real path **[F24]** |
-| `RunAtLoad` | true | start at login |
-| `KeepAlive` | `{SuccessfulExit: false}` | restart after a crash, not after a clean stop |
-| `ProcessType` | `Interactive` | it handles keys |
-| `LimitLoadToSessionType` | `Aqua` | only meaningful in a GUI session |
-| `StandardOutPath`, `StandardErrorPath` | `~/Library/Logs/scope.log` | anything outside the unified log |
-| `EnvironmentVariables` | `XDG_CONFIG_HOME`, only if set | launchd does not pass the shell's environment **[F29]** |
+The file's contents are **specified by** `Tests/scopeTests/ServiceTests.swift`: this binary's real path **[F24]** with `run`, start at login, restart after a crash but not a clean exit, interactive, GUI sessions only, and `XDG_CONFIG_HOME` carried over **[F29]**. Output outside the unified log goes to `~/Library/Logs/scope.log`.
 
 Commands:
 
@@ -379,7 +313,7 @@ Commands:
 - **stop**: `bootout`. The file stays, so it starts again at the next login.
 - **restart**: as start if not loaded or changed, else `kickstart -k`; then the same wait.
 - **bootstrap** is retried every 200ms for up to 3s **[F28]**; `bootout` waits until the label is gone.
-- **status**: `launchctl print gui/<uid>/<label>` for state and pid (top-level `pid =` and `last exit code =` lines), then the socket's `status`. Exit 0 running, 3 not running, 4 without permission.
+- **status**: `launchctl print gui/<uid>/<label>` for state and pid (parsing **specified by** `ServiceTests.swift`), then the socket's `status`. Exit 0 running, 3 not running, 4 without permission.
 - **logs**: exec `log stream --style compact --predicate 'subsystem == "io.github.np25071984.scope" AND process == "scope"'`, or `log show --last <t>`.
 - **list**: the socket's `list`; `--direct` builds the list in-process instead (stacking order, terminal's permission).
 
@@ -398,33 +332,27 @@ Unified log, subsystem `io.github.np25071984.scope`. Lifecycle and warnings alwa
 
 ## Constants
 
+The stamp table's limits, the burst history, the tab-group frame tolerance and refocus timing are named constants on `StampTable` and `Refocus`, and covered by their tests. The rest:
+
 | Constant | Value | Why |
 |---|---|---|
 | AX messaging timeout | 250ms | a slow app costs its own rows' freshness, not the switcher **[F13]** |
 | Known-answer table | trimmed past 512 | windows not on screen are asked about again when they return |
-| Stamp table | past 1,024, keep newest 512 | an untouched window ranks by stacking order just as well |
-| Stamp history | 1s | reaches past one switch's burst of stamps |
-| Frame match | ±2pt | tab-group membership |
 | Observer retry | 1s × 5 | newly launched apps **[F14]** |
 | Watchdog | 10s | a missed modifier release |
-| Refocus settle | 0.3s | after the Space-change notification |
-| Switch margin | 1s | the animation before the notification, and its stamps **[F20]** |
-| Own-activation window | 0.5s | scope's refocus is not a user's choice |
 | Permission poll | 5s | no notification exists **[F16]** |
 | Bootstrap retry | 200ms × 15 | **[F28]** |
 | Socket timeouts | server 2s, client 5s | |
 
 ## Verification
 
-A rebuild is done when every scenario passes.
+A rebuild is done when `swift test` passes and every scenario below does. These need a real desktop: the tests cover the decisions, not macOS acting on them.
 
 **Keys**
 
 - [ ] ⌘Tab opens scope's list, never the system switcher, including while an Android emulator build or a busy Electron app is running.
 - [ ] A quick ⌘Tab press-and-release, repeated, toggles between the same two windows.
 - [ ] Two quick ⌘Tabs in a row: the second lands on the window you just left, not on a third.
-- [ ] Tab pressed again before the list appears steps; ⌘ released before it appears commits.
-- [ ] esc closes without switching; other keys with ⌘ held (⌘C, ⌘`) work normally.
 - [ ] After typing in a password field, ⌘Tab still opens scope.
 - [ ] With `modifier = alt`, ⌥Tab opens scope and ⌘Tab opens the system switcher.
 
@@ -444,7 +372,6 @@ A rebuild is done when every scenario passes.
 
 **Order**
 
-- [ ] Most recently used first; windows never used since scope started last, in stacking order.
 - [ ] Use Terminal through tab A, switch to tab B by keyboard, use another app: Terminal still ranks above windows untouched for longer.
 
 **Refocus**
@@ -452,7 +379,6 @@ A rebuild is done when every scenario passes.
 - [ ] Click the desktop (Finder active), switch to a Space with a Terminal: typing goes to Terminal.
 - [ ] The app you left has a window on the destination Space: the window you last used there gets focus, not that app's.
 - [ ] Switching Spaces by clicking a window in the Dock or a notification keeps that window.
-- [ ] After `scope restart`, switching to a Space with no recorded use leaves focus alone.
 - [ ] `refocus = false` turns all of it off.
 
 **Service**
@@ -460,6 +386,6 @@ A rebuild is done when every scenario passes.
 - [ ] `./build.sh --install`, grant the permission: scope starts within 5s without a restart.
 - [ ] Rebuild and reinstall: still allowed, no prompt.
 - [ ] `kill -9` the service: launchd restarts it. `scope stop`: it stays stopped until `scope start` or the next login.
-- [ ] `scope reload` and `kill -HUP` apply config changes; a bad value is reported and the rest still apply.
+- [ ] `scope reload` and `kill -HUP` apply config changes.
 - [ ] `scope status` exits 0 / 3 / 4 as documented; `scope list` works from a terminal without Accessibility permission.
 - [ ] A second `scope run` exits instead of taking ⌘Tab twice.

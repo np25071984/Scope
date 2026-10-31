@@ -34,10 +34,14 @@ enum Service {
 
     static func state(_ label: String = Service.label) -> State {
         let (code, out) = run("/bin/launchctl", ["print", "\(domain)/\(label)"])
-        guard code == 0 else { return State() }
+        return code == 0 ? parseState(out) : State()
+    }
+
+    /// The state in `launchctl print gui/<uid>/<label>` output.
+    static func parseState(_ output: String) -> State {
         var state = State(loaded: true)
         // Only the service's own top-level lines; nested blocks are indented further.
-        for line in out.split(separator: "\n") where line.hasPrefix("\t") && !line.hasPrefix("\t\t") {
+        for line in output.split(separator: "\n") where line.hasPrefix("\t") && !line.hasPrefix("\t\t") {
             let parts = line.split(separator: "=", maxSplits: 1).map {
                 $0.trimmingCharacters(in: .whitespaces)
             }
@@ -101,21 +105,9 @@ enum Service {
     /// The agent's file for this binary. Returns whether it had to be written.
     @discardableResult
     static func writePlist() -> Bool {
-        var agent: [String: Any] = [
-            "Label": ownLabel,
-            "ProgramArguments": [CommandLine.executable, "run"],
-            "RunAtLoad": true,
-            "KeepAlive": ["SuccessfulExit": false],
-            "ProcessType": "Interactive",
-            "LimitLoadToSessionType": "Aqua",
-            "StandardOutPath": logFile,
-            "StandardErrorPath": logFile,
-        ]
-        // launchd does not pass on the shell's environment; carry the one
-        // variable that decides where scope.conf is.
-        if let xdg = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"], xdg.hasPrefix("/") {
-            agent["EnvironmentVariables"] = ["XDG_CONFIG_HOME": xdg]
-        }
+        let agent = agent(
+            binary: CommandLine.executable,
+            xdgConfigHome: ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"])
         guard let data = try? PropertyListSerialization.data(
             fromPropertyList: agent, format: .xml, options: 0)
         else { return false }
@@ -126,6 +118,26 @@ enum Service {
         FileManager.default.createFile(atPath: path, contents: data)
         print("wrote \(path)")
         return true
+    }
+
+    /// The agent's launchd file, as a property list.
+    static func agent(binary: String, xdgConfigHome: String?) -> [String: Any] {
+        var agent: [String: Any] = [
+            "Label": ownLabel,
+            "ProgramArguments": [binary, "run"],
+            "RunAtLoad": true,
+            "KeepAlive": ["SuccessfulExit": false],
+            "ProcessType": "Interactive",
+            "LimitLoadToSessionType": "Aqua",
+            "StandardOutPath": logFile,
+            "StandardErrorPath": logFile,
+        ]
+        // launchd does not pass on the shell's environment; carry the one
+        // variable that decides where scope.conf is.
+        if let xdgConfigHome, xdgConfigHome.hasPrefix("/") {
+            agent["EnvironmentVariables"] = ["XDG_CONFIG_HOME": xdgConfigHome]
+        }
+        return agent
     }
 
     private static func bootstrap() -> Int32 {

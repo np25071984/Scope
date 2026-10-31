@@ -17,5 +17,10 @@ let package = Package(
                 .linkedFramework("ApplicationServices"),
             ]
         ),
+        .testTarget(
+            name: "scopeTests",
+            dependencies: ["scope"],
+            path: "Tests/scopeTests"
+        ),
     ]
 )

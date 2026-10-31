@@ -13,9 +13,7 @@ final class Switcher {
     private var index = 0
     private var watchdog: Timer?
     private var refocusTimer: Timer?
-    private var spaceChangedAt: TimeInterval = 0
-    private var lastActivation: TimeInterval = 0
-    private var refocused: (pid: pid_t, at: TimeInterval)?
+    private var refocusState = Refocus()
     private var icons: [pid_t: NSImage] = [:]
 
     var refocusEnabled = true
@@ -55,13 +53,14 @@ final class Switcher {
     /// when -- and then the slot the switcher skips as "where I already am"
     /// would be the one it was supposed to land on.
     func currentWindows() -> [Window] {
-        var ranked = recency.rank(lister.currentSpace())
-        if let focused = AX.focusedWindowID(),
-           let i = ranked.firstIndex(where: { $0.id == focused }), i > 0
-        {
-            ranked.insert(ranked.remove(at: i), at: 0)
-        }
-        return ranked
+        Self.focusedFirst(recency.rank(lister.currentSpace()), focused: AX.focusedWindowID())
+    }
+
+    static func focusedFirst<W: Rankable>(_ ranked: [W], focused: CGWindowID?) -> [W] {
+        guard let focused, let i = ranked.firstIndex(where: { $0.id == focused }), i > 0 else { return ranked }
+        var result = ranked
+        result.insert(result.remove(at: i), at: 0)
+        return result
     }
 
     func lastUsed(_ window: Window) -> TimeInterval? {
@@ -102,7 +101,7 @@ final class Switcher {
 
         // Start on the next window, so a quick press and release toggles
         // between the two most recent, the way ⌘Tab does.
-        index = delta > 0 ? 1 : windows.count - 1
+        index = Self.firstSelection(delta: delta, count: windows.count)
 
         let rows = windows.map { w in
             let app = NSRunningApplication(processIdentifier: w.pid)
@@ -120,7 +119,7 @@ final class Switcher {
 
     private func step(_ delta: Int) {
         guard overlay.isVisible, !windows.isEmpty else { return }
-        select(((index + delta) % windows.count + windows.count) % windows.count)
+        select(Self.stepped(index, by: delta, count: windows.count))
     }
 
     private func select(_ row: Int) {
@@ -136,6 +135,17 @@ final class Switcher {
         Log.trace("commit \(index + 1): \(target.id) \"\(target.title)\"")
         teardown()
         Focus.window(target)
+    }
+
+    /// Forward selects the second row, so a quick press and release toggles
+    /// between the two most recent windows; backward selects the last.
+    static func firstSelection(delta: Int, count: Int) -> Int {
+        delta > 0 ? 1 : count - 1
+    }
+
+    /// Steps wrap around in both directions.
+    static func stepped(_ index: Int, by delta: Int, count: Int) -> Int {
+        ((index + delta) % count + count) % count
     }
 
     func cancel() {
@@ -177,36 +187,17 @@ final class Switcher {
 
     // MARK: Keeping focus on the Space you arrive in
     //
-    // Switching Spaces does not reliably move the keyboard with you: the app
-    // active on the Space you left stays active when it has nothing here, so
-    // you arrive with your last window in front but not focused. If nothing on
-    // the new Space has focus once the switch settles, the window you used last
-    // here gets it. A window that already has focus is left alone, because a
-    // Space change is as often the result of choosing one -- unless it belongs
-    // to the app that was active on the Space you left and no app was
-    // activated around the switch. That is macOS carrying the active app over
-    // to its window here, not a choice: choosing a window, from the Dock, a
-    // notification or Mission Control, activates its app. Scope's own refocus
-    // activates one too, and a quick switch back must not take that for a
-    // choice.
-    //
-    // The arrival itself stamps the carried-over window as used, so the
-    // decision ranks by use before the switch. The margin covers the
-    // animation, which runs before the notification is posted, and the
-    // stamps it fires.
-    private static let switchMargin: TimeInterval = 1
+    // The decision is `Refocus`; this is its timer and its side effects.
 
     private func activated(_ pid: pid_t?) {
-        let now = ProcessInfo.processInfo.systemUptime
-        if let refocused, refocused.pid == pid, now - refocused.at < 0.5 { return }
-        lastActivation = now
+        refocusState.activated(pid, at: ProcessInfo.processInfo.systemUptime)
     }
 
     private func spaceChanged() {
         guard refocusEnabled else { return }
-        spaceChangedAt = ProcessInfo.processInfo.systemUptime
+        refocusState.spaceChanged(at: ProcessInfo.processInfo.systemUptime)
         refocusTimer?.invalidate()
-        refocusTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
+        refocusTimer = Timer.scheduledTimer(withTimeInterval: Refocus.settle, repeats: false) { [weak self] _ in
             self?.refocus()
         }
     }
@@ -215,26 +206,97 @@ final class Switcher {
         refocusTimer = nil
         guard !overlay.isVisible else { return }
 
-        let cutoff = spaceChangedAt - Self.switchMargin
+        let cutoff = refocusState.cutoff
         let here = recency.rank(lister.currentSpace(), before: cutoff)
-        if let focused = AX.focusedWindowID(), let window = here.first(where: { $0.id == focused }) {
-            let carried = lastActivation < cutoff
-                && window.pid == NSWorkspace.shared.frontmostApplication?.processIdentifier
-            guard carried, here.first?.id != focused else {
-                Log.trace("refocus: window \(focused) already focused")
-                return
-            }
-            Log.trace("refocus: window \(focused) carried over by macOS, not chosen")
+        let outcome = refocusState.decide(
+            here, focused: AX.focusedWindowID(),
+            frontmost: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+            seenUsed: { [recency] in recency.lastUsed($0.id, before: cutoff) != nil })
+
+        switch outcome {
+        case .leave(let reason):
+            Log.trace("refocus: left alone (\(reason))")
+        case .focus(let id):
+            guard let target = here.first(where: { $0.id == id }) else { return }
+            Log.trace("refocus: \(target.id) \"\(target.title)\"")
+            refocusState.refocusing(target.pid, at: ProcessInfo.processInfo.systemUptime)
+            Focus.window(target)
+        }
+    }
+}
+
+/// Whether to move focus after a Space switch, and where. Pure: the caller
+/// supplies the clock, the ranked windows and the live focus.
+///
+/// Switching Spaces does not reliably move the keyboard with you: the app
+/// active on the Space you left stays active when it has nothing here, so you
+/// arrive with your last window in front but not focused. If nothing on the
+/// new Space has focus once the switch settles, the window you used last here
+/// gets it. A window that already has focus is left alone, because a Space
+/// change is as often the result of choosing one -- unless it belongs to the
+/// frontmost app and no app was activated around the switch. That is macOS
+/// carrying the active app over to its window here, not a choice: choosing a
+/// window, from the Dock, a notification or Mission Control, activates its
+/// app. scope's own refocus activates one too, and a quick switch back must
+/// not take that for a choice.
+///
+/// The arrival itself stamps the carried-over window as used, so the decision
+/// ranks by use before the switch. The margin covers the animation, which runs
+/// before the notification is posted, and the stamps it fires.
+struct Refocus {
+    /// Wait this long after the Space-change notification.
+    static let settle: TimeInterval = 0.3
+    /// Rank by use from this long before the notification.
+    static let switchMargin: TimeInterval = 1
+    /// An activation of the app scope just refocused, within this long, is
+    /// scope's own doing.
+    static let ownActivation: TimeInterval = 0.5
+
+    enum Reason: Equatable {
+        case chosen           // focus is on a window that was picked
+        case alreadyThere     // the window used last already has focus
+        case neverUsed        // no window here has been seen used before the switch
+    }
+
+    enum Outcome: Equatable {
+        case leave(Reason)
+        case focus(CGWindowID)
+    }
+
+    private(set) var spaceChangedAt: TimeInterval = 0
+    private(set) var lastActivation: TimeInterval = 0
+    private(set) var refocused: (pid: pid_t, at: TimeInterval)?
+
+    var cutoff: TimeInterval { spaceChangedAt - Self.switchMargin }
+
+    mutating func activated(_ pid: pid_t?, at now: TimeInterval) {
+        if let refocused, refocused.pid == pid, now - refocused.at < Self.ownActivation { return }
+        lastActivation = now
+    }
+
+    mutating func spaceChanged(at now: TimeInterval) {
+        spaceChangedAt = now
+    }
+
+    mutating func refocusing(_ pid: pid_t, at now: TimeInterval) {
+        refocused = (pid, now)
+    }
+
+    /// `here`: this Space's windows ranked by use before `cutoff`. `focused`:
+    /// the live focused window. `seenUsed`: whether a window has a stamp
+    /// before `cutoff`.
+    func decide<W: Rankable>(
+        _ here: [W], focused: CGWindowID?, frontmost: pid_t?, seenUsed: (W) -> Bool
+    ) -> Outcome {
+        if let focused, let window = here.first(where: { $0.id == focused }) {
+            let carried = lastActivation < cutoff && window.pid == frontmost
+            if !carried { return .leave(.chosen) }
+            if here.first?.id == focused { return .leave(.alreadyThere) }
         }
         // Only a window scope has seen used. The order among windows it has
         // not is stacking order, not a record of use; macOS's own choice, or
         // none, is better than a guess.
-        guard let target = here.first, recency.lastUsed(target.id, before: cutoff) != nil else {
-            Log.trace("refocus: nothing used on this Space since launch; left alone")
-            return
-        }
-        Log.trace("refocus: \(target.id) \"\(target.title)\"")
-        refocused = (target.pid, ProcessInfo.processInfo.systemUptime)
-        Focus.window(target)
+        guard let target = here.first, seenUsed(target) else { return .leave(.neverUsed) }
+        return .focus(target.id)
     }
 }
