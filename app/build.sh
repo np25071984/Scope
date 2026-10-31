@@ -15,7 +15,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-VERSION=2.0.0
+VERSION=2.0.1
 BUNDLE_ID=io.github.np25071984.scope
 APP=build/Scope.app
 

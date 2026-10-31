@@ -67,3 +67,13 @@ Most of the Lua version's repair stages (ghosts, reconcile, the tab-group re-ran
 The private calls (`_AXUIElementGetWindow`, `_SLPSSetFrontProcessWithOptions`, `SLPSPostEventRecordTo`, `SLSGetActiveSpace`, `GetProcessForPID`) are all in `Sources/Scope/Private.swift`, looked up at run time, so a macOS update that removes one makes Scope fall back instead of failing to launch.
 
 Not carried over: the reload hotkey, editable key names (Tab and Escape are fixed), and the appearance fields.
+
+## Changelog
+
+### 2.0.1 — 2026-10-31
+
+Switching to a Space now focuses the window you last used there, even when the app you left also has a window on that Space. macOS focuses that app's window on arrival, and Scope used to treat it as your choice and leave it. Scope now recognises this case because no app was activated around the switch, and it ranks windows by their use from before the switch, since arriving stamps the carried-over window as used. A window you pick from the Dock, a notification or Mission Control is still left alone.
+
+### 2.0.0
+
+First build of Scope.app, a standalone version that needs no Hammerspoon.
