@@ -55,6 +55,25 @@ It leaves focus alone when you chose where to go: a window clicked in the Dock, 
 
 scope is a single binary run as a launchd service. It has no app bundle, Dock icon or menu bar: you control it with `scope start | stop | status | …` and configure it in a text file.
 
+## Alternatives
+
+- **Mission Control** (three-finger swipe up, or <kbd>⌃</kbd> <kbd>↑</kbd>) shows the current Space's windows, picked with the pointer.
+- **<kbd>⌘</kbd> <kbd>`</kbd>** cycles the windows of the frontmost app on the current Space.
+- **[AltTab](https://alt-tab.app/)** is a full window switcher: window thumbnails, and windows from every Space along with minimized and hidden ones. Its core is free and open source (GPL-3.0); AltTab Pro adds paid features.
+
+How scope differs from AltTab as a switcher is below. scope's other half, [focus that follows you across Spaces](#focus-follows-you-across-spaces), works on its own, without opening any switcher.
+
+| | scope | AltTab |
+|---|---|---|
+| Installed size | **417 KB**, one file | 11.5 MB, 227 files |
+| Windows listed | the current Space only, by design | every Space, minimized and hidden, marked |
+| Runs as | a launchd service, `scope start \| stop \| status` | an app |
+| Settings | a text file, `scope.conf` | in the app |
+| Updates | `git pull && ./build.sh --install` | built in |
+| Price | free, MIT | free core, paid Pro |
+
+<sub>AltTab figures are for version 11.10.1 (October 2026), from its release download and [alt-tab.app](https://alt-tab.app/).</sub>
+
 ## Install
 
 Needs macOS 13 or later and the Xcode command line tools.
