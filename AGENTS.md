@@ -32,3 +32,10 @@ Each fact lives in one place. Do not repeat it in another. `CLAUDE.md` only impo
 ## Releasing
 
 Bump `version` in `Sources/Scope/Support.swift`, add a dated Changelog entry to `README.md`, and say what an upgrading user has to do if anything.
+
+Once the release PR is merged, tag its merge commit and push the tag. Tags are protected and cannot be moved or deleted, so check the commit first:
+
+```bash
+git tag -a vX.Y.Z <merge commit> -m "scope X.Y.Z: <one line>"
+git push origin vX.Y.Z
+```
