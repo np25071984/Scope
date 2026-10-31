@@ -41,3 +41,5 @@ git push origin vX.Y.Z
 ```
 
 The tag runs `.github/workflows/release.yml`, which builds, signs and publishes the release that `install.sh` installs. It fails, publishing nothing, if `version` does not match the tag or the Changelog has no entry for it. Signing needs the `release` environment's secrets, `SCOPE_RELEASE_P12` and `SCOPE_RELEASE_P12_PASSWORD`; never put that certificate anywhere else.
+
+Then update `Formula/scope.rb` in a PR: `url` and `version` to the new tag, `sha256` to the one in the release's `scope-macos.tar.gz.sha256`. Homebrew users get the release only once that is merged.

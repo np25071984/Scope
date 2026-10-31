@@ -85,6 +85,18 @@ To install a particular release, or somewhere other than `~/.local`, set `SCOPE_
 
 Releases are signed with scope's own self-signed certificate, not an Apple Developer ID, so they are not notarized. The installer is unaffected. A release archive downloaded with a browser, though, is quarantined, and macOS refuses to run it until you clear that: `xattr -d com.apple.quarantine scope`.
 
+### With Homebrew
+
+```bash
+brew tap np25071984/scope https://github.com/np25071984/Scope
+brew install scope
+brew services start scope
+```
+
+Then turn on **scope** in Accessibility; if it is not listed, add `$(brew --prefix)/var/scope/scope`, which is the copy the service runs. Upgrade with `brew upgrade scope && brew services restart scope`; the permission is kept. Remove with `brew services stop scope && brew uninstall scope && rm -rf $(brew --prefix)/var/scope`.
+
+Use either Homebrew or the installer, not both: both would take ⌘Tab. To switch from the installer, run `scope uninstall` first.
+
 ### Building from source
 
 For working on scope. Needs the Xcode command line tools.
@@ -128,7 +140,7 @@ launchctl print gui/$UID/io.github.np25071984.scope
 launchctl kickstart -k gui/$UID/io.github.np25071984.scope
 ```
 
-If scope is installed by a Homebrew formula, its agent is `homebrew.mxcl.scope`, owned by `brew services`. `scope start`, `stop` and `restart` then hand over to `brew services`, so the two never disagree.
+Installed with Homebrew, the service belongs to `brew services` (label `sh.brew.scope`). `scope start`, `stop` and `restart` then hand over to `brew services`, so the two never disagree.
 
 ## Configuration
 
@@ -157,6 +169,10 @@ Architecture, threads, the window list, recency, refocus, the service and every 
 The decision logic is covered by tests: `swift test`.
 
 ## Changelog
+
+### 2.3.0 — 2026-10-31
+
+scope can be installed with Homebrew: `brew tap np25071984/scope https://github.com/np25071984/Scope`, `brew install scope`, `brew services start scope`. The formula installs the signed release, and its service runs a copy at a path that stays the same across versions, so `brew upgrade` keeps the Accessibility permission. `scope start`, `stop` and `restart` hand over to `brew services` when Homebrew installed scope, and `scope status` recognises Homebrew 7's service label, `sh.brew.scope`. When scope needs the permission, it names the file to allow: the copy the service runs.
 
 ### 2.2.0 — 2026-10-31
 

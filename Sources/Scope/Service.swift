@@ -15,16 +15,33 @@ import Foundation
 
 enum Service {
     static let ownLabel = "io.github.np25071984.scope"
-    static let brewLabel = "homebrew.mxcl.scope"
+    /// What `brew services` calls it: `sh.brew.` since Homebrew 7, `homebrew.mxcl.`
+    /// for services started by older versions.
+    static let brewLabels = ["sh.brew.scope", "homebrew.mxcl.scope"]
 
     static var agents: String { NSHomeDirectory() + "/Library/LaunchAgents" }
     static func plist(_ label: String) -> String { "\(agents)/\(label).plist" }
     static var logFile: String { NSHomeDirectory() + "/Library/Logs/scope.log" }
     static var domain: String { "gui/\(getuid())" }
 
-    /// Homebrew's agent when there is one, else scope's own.
-    static var isHomebrew: Bool { FileManager.default.fileExists(atPath: plist(brewLabel)) }
-    static var label: String { isHomebrew ? brewLabel : ownLabel }
+    /// Homebrew's agent file, if `brew services` has written one.
+    static var brewLabel: String? {
+        brewLabels.first { FileManager.default.fileExists(atPath: plist($0)) }
+    }
+
+    /// Installed by Homebrew: the formula puts the binary in the Cellar and
+    /// the service's copy in `var/scope`. `brew services` then owns the
+    /// service, even before it has been started once.
+    static func isHomebrewPath(_ path: String) -> Bool {
+        path.contains("/Cellar/scope/") || path.hasSuffix("/var/scope/scope")
+    }
+
+    static var isHomebrew: Bool { brewLabel != nil || isHomebrewPath(CommandLine.executable) }
+
+    /// Homebrew's agent when Homebrew owns the service, else scope's own.
+    static var label: String {
+        brewLabel ?? (isHomebrewPath(CommandLine.executable) ? brewLabels[0] : ownLabel)
+    }
 
     struct State {
         var loaded = false
@@ -105,7 +122,8 @@ enum Service {
     /// removed.
     static func uninstall() -> Int32 {
         if isHomebrew {
-            fputs("scope: installed by Homebrew; run `brew services stop scope && brew uninstall scope`\n", stderr)
+            fputs("scope: installed by Homebrew; run `brew services stop scope && brew uninstall scope`, "
+                + "then `rm -rf $(brew --prefix)/var/scope`\n", stderr)
             return 1
         }
         if state(ownLabel).loaded { bootout() }
@@ -200,7 +218,7 @@ enum Service {
         guard let brew = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
             .first(where: { FileManager.default.isExecutableFile(atPath: $0) })
         else {
-            fputs("scope: \(plist(brewLabel)) exists but brew was not found\n", stderr)
+            fputs("scope: installed by Homebrew, but brew was not found\n", stderr)
             return 1
         }
         let (code, out) = run(brew, ["services", command, "scope"])
@@ -210,8 +228,8 @@ enum Service {
 
     /// Two copies would both take ⌘Tab.
     private static func warnAboutHomebrew() {
-        if state(brewLabel).loaded {
-            fputs("warning: Homebrew's scope service (\(brewLabel)) is also loaded; "
+        for label in brewLabels where state(label).loaded {
+            fputs("warning: Homebrew's scope service (\(label)) is also loaded; "
                 + "run `brew services stop scope`\n", stderr)
         }
     }
