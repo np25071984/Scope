@@ -1,24 +1,103 @@
 # Implementation
 
-How scope works, and why it works that way. [README.md](README.md) covers using it; this is for changing it.
+A specification for building scope from nothing. It states what scope must do, the macOS behaviour that dictates how, and the design that results, down to the constants. Every rule that looks arbitrary exists because of a platform fact in [Platform facts](#platform-facts); the rule cites it as **[Fn]**.
+
+[README.md](README.md) covers using scope. The code in `Sources/Scope` is one implementation of this document.
+
+## Required behaviour
+
+**Switcher**
+
+- <kbd>⌘</kbd> <kbd>Tab</kbd> opens a vertical list of the **windows** on the **current Space**, most recently used first, and selects the second row. <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>Tab</kbd> opens it with the last row selected.
+- Further <kbd>Tab</kbd> / <kbd>⇧</kbd> <kbd>Tab</kbd> while <kbd>⌘</kbd> is held moves the selection, wrapping around.
+- Releasing <kbd>⌘</kbd> focuses the selected window. <kbd>esc</kbd> closes the list without switching.
+- So a quick press-and-release always toggles between the two most recent windows.
+- With the pointer, while <kbd>⌘</kbd> is held: hovering a row selects it, clicking a row switches to it, clicking anywhere else closes without switching. Clicks never reach the windows underneath.
+- Fewer than two windows on the Space: nothing opens.
+- Focusing brings forward that one window, not every window of its app.
+- A native tab group (Terminal, Finder…) is one row, showing the tab that is up.
+- The modifier is configurable: `cmd` replaces the system switcher, `alt` and `ctrl` run beside it.
+- Every key other than the ones the switcher uses passes through untouched, and ⌘Tab is never lost to the system switcher, however slow other apps are.
+
+**Refocus after a Space switch**
+
+- On arriving at a Space, if macOS left nothing there focused, or focused a window only because its app was active on the Space you left, focus the window you last used on this Space.
+- A window you chose (Dock, notification, Mission Control, scope itself) is left alone.
+- If scope has never seen a window on this Space used, leave focus alone.
+
+**Service**
+
+- One signed binary, `scope`, run by launchd as a per-user agent: starts at login, restarted after a crash, not after a clean stop.
+- Controlled with `scope start | stop | restart | reload | status | logs | list | run | version`.
+- Configured by `~/.config/scope/scope.conf`; never writes it.
+- Needs only the Accessibility permission. Asks for it once, then starts by itself when it is granted.
+
+## Platform facts
+
+What macOS does, as observed while building scope (most recently on macOS 26). Each one broke an earlier design; re-check them when a macOS release changes behaviour.
+
+### Keys and events
+
+- **F1.** The Dock owns <kbd>⌘</kbd> <kbd>Tab</kbd>. It cannot be registered as a hotkey (the registration fails or never fires), it is not a symbolic hotkey, and System Settings has no switch to disable it. A session event tap (`.cgSessionEventTap`, `.headInsertEventTap`, `.defaultTap`) sees the key before the Dock and can swallow it.
+- **F2.** An event tap callback has a deadline. Miss it and macOS disables the tap (`tapDisabledByTimeout`) and delivers the key onwards: the system switcher appears. Secure input (password fields) disables taps too (`tapDisabledByUserInput`). A disabled tap must be re-enabled by hand.
+- **F3.** The modifier's release arrives as `flagsChanged`, not `keyUp`.
+- **F4.** Swallowing `mouseMoved` freezes the cursor. A tap that sees `mouseMoved` runs its callback continuously.
+- **F5.** Event locations are in global coordinates with a top-left origin. AppKit window frames have a bottom-left origin: `cgY = primaryScreenHeight − appKitMaxY`.
+
+### Windows
+
+- **F6.** `CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements])` lists exactly the windows ordered in on the Spaces currently showing, frontmost first, with id, pid, layer and bounds. It is public, fast, and needs no permission for those fields. Window *titles* from it need Screen Recording permission, so titles must come from Accessibility.
+- **F7.** Document windows are layer 0. The menu bar, Dock, menus and floating panels are higher layers.
+- **F8.** Many apps keep invisible helper windows in every Space to render popups (Microsoft Teams keeps a 680×932 window titled "Window"). They, and sheets and dialogs, have an Accessibility subrole other than `AXStandardWindow`.
+- **F9.** Native window tabs: every tab is a separate window with its own id, but only the front tab is on screen and visible to Accessibility. Switching or closing tabs swaps windows without reliable notifications. A tab switched to by keyboard may announce nothing at all. The tabs behind cannot be listed or targeted.
+- **F10.** An Accessibility window element maps to its window-server id only through the private `_AXUIElementGetWindow`.
+- **F11.** Native-fullscreen windows each live on their own Space.
+- **F12.** Maximized windows of one app on two Spaces can have identical frames.
+
+### Accessibility
+
+- **F13.** Some apps answer Accessibility slowly — Electron apps, and an Android emulator and IDE during a debug build — and the default timeout is seconds. `AXUIElementSetMessagingTimeout` on the system-wide element sets it for every call the process makes.
+- **F14.** `AXObserverAddNotification` fails for an app that has only just launched; it succeeds a few seconds later.
+- **F15.** Notifications are delivered asynchronously. A focus change from a switch made a moment ago may not have been seen yet when the next ⌘Tab arrives.
+- **F16.** `AXIsProcessTrusted` changes post no notification; it must be polled. `AXIsProcessTrustedWithOptions` with the prompt option adds the process to the Accessibility list, so there is a switch to turn on.
+
+### Focus and Spaces
+
+- **F17.** Activating an app brings all its windows forward. One window alone needs the private `_SLPSSetFrontProcessWithOptions` with `kCPSUserGenerated` (0x200), then two synthesized "make key window" event records via `SLPSPostEventRecordTo`, then `AXRaise`. Without the event records, key focus can stay on another window of the same app. `AXRaise` must come last, because SetFrontProcess orders the app but not the window among the app's own.
+- **F18.** A panel that accepts mouse events can take focus. `.nonactivatingPanel` with `ignoresMouseEvents` cannot.
+- **F19.** Switching Spaces does not reliably move keyboard focus. The app active on the Space you left stays active if it has no window on the new one (Finder after a click on the desktop is the usual case): your last window is in front, but typing goes nowhere. If that app *does* have a window on the new Space, macOS focuses it, which looks exactly like a choice.
+- **F20.** `activeSpaceDidChangeNotification` is posted after the switch animation. The switch itself fires activation, deactivation and focus-change notifications, so it generates "use" of the windows it lands on.
+- **F21.** Choosing a window from the Dock, a notification or Mission Control activates its app (`didActivateApplicationNotification`). macOS carrying the active app over to a window on the new Space does not.
+- **F22.** The active Space comes from the private `SLSGetActiveSpace(SLSMainConnectionID())` (older name: `CGS…`). Private symbols disappear between macOS releases.
+
+### Permission, signing, launchd
+
+- **F23.** The Accessibility permission belongs to the *responsible* process. Started by launchd, that is the binary itself. Started from a shell, it is the terminal app, whatever binary runs.
+- **F24.** An unbundled binary's permission is keyed to its **path** and its code signature's designated requirement. Same path, same certificate: the permission survives rebuilds. Another path, or an ad-hoc signature (which changes with every build): it must be granted again.
+- **F25.** If the binary has a reverse-DNS signing identifier, or an `Info.plist` (embedded with `-sectcreate __TEXT __info_plist`, or simply next to the binary), tccd files the permission under a **bundle ID**, then fails to find an app with that ID (`kLSApplicationNotFoundErr`) and denies. The entry shows in System Settings with a folder icon, named after the identifier's last component; turning it on does nothing, and `tccutil reset` cannot remove it.
+- **F26.** An untrusted self-signed code-signing certificate works for `codesign` and gives a stable designated requirement (`identifier "scope" and certificate leaf = H"…"`). `security find-identity -v` hides untrusted certificates; without `-v` it lists them.
+- **F27.** Overwriting a signed binary in place while it runs gets the process killed. Replacing it by rename does not.
+- **F28.** `launchctl bootstrap` straight after `bootout` of the same label fails transiently with an I/O error.
+- **F29.** launchd agents do not inherit the shell's environment, and `$TMPDIR` can differ between them. `confstr(_CS_DARWIN_USER_TEMP_DIR)` is the same for both.
+- **F30.** `log stream` shows `notice` and above by default; `info` and `debug` messages are hidden.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
     subgraph shell["Terminal (terminal's permission)"]
-        CLI["scope start | stop | restart<br/>status | list | reload | logs<br/><i>main.swift, Service.swift</i>"]
+        CLI["scope start | stop | restart<br/>status | list | reload | logs"]
     end
 
     subgraph service["scope run (launchd agent, scope's own permission)"]
-        Daemon["Daemon<br/><i>Daemon.swift</i><br/>config, permission, signals"]
-        Control["Control<br/><i>Control.swift</i><br/>unix socket server"]
-        Switcher["Switcher<br/><i>Switcher.swift</i><br/>open, step, commit, refocus"]
-        KeyTap["KeyTap<br/><i>KeyTap.swift</i><br/>keyboard and pointer taps"]
-        WindowLister["WindowLister<br/><i>Windows.swift</i><br/>the window list"]
-        Recency["Recency<br/><i>Recency.swift</i><br/>last-used stamps"]
-        Overlay["Overlay<br/><i>Overlay.swift</i><br/>the panel"]
-        Focus["Focus<br/><i>Focus.swift</i><br/>bring one window forward"]
+        Daemon["Daemon<br/>config, permission, signals"]
+        Control["Control<br/>unix socket"]
+        Switcher["Switcher<br/>open, step, commit, refocus"]
+        KeyTap["KeyTap<br/>keyboard and pointer taps"]
+        WindowLister["WindowLister<br/>the window list"]
+        Recency["Recency<br/>last-used stamps"]
+        Overlay["Overlay<br/>the panel"]
+        Focus["Focus<br/>one window forward"]
     end
 
     CLI -- "launchctl / brew services" --> launchd
@@ -35,243 +114,328 @@ flowchart LR
 
     KeyTap -. "CGEventTap" .-> WS["WindowServer"]
     WindowLister -. "CGWindowList" .-> WS
-    WindowLister -. "AX: windows, titles, subroles" .-> Apps["Other apps"]
+    WindowLister -. "AX" .-> Apps["Other apps"]
     Recency -. "AXObserver, NSWorkspace" .-> Apps
-    Focus -. "SkyLight (private), AXRaise" .-> WS
+    Focus -. "SkyLight, AXRaise" .-> WS
 ```
 
-| File | Main type | Role |
+| Component | File | Responsibility |
 |---|---|---|
-| `main.swift` | — | Command-line entry point; `scope run` hands over to `Daemon` |
-| `Service.swift` | `Service` | launchd: writes the agent's plist, bootstrap/bootout/kickstart, hands over to `brew services` |
-| `Control.swift` | `Control` | The unix socket, client and server |
-| `Daemon.swift` | `Daemon` | The service process: config, Accessibility permission, signals, socket answers |
-| `Config.swift` | `Config` | Parses `scope.conf` |
-| `Switcher.swift` | `Switcher` | What ⌘Tab opens, steps through and commits; refocus after a Space switch |
-| `KeyTap.swift` | `KeyTap` | The keyboard and pointer event taps |
-| `Windows.swift` | `WindowLister`, `Window`, `AX` | The window list: the current Space's windows, window server joined to Accessibility |
-| `Recency.swift` | `Recency` | Most-recently-used stamps |
-| `Overlay.swift` | `Overlay` | The panel that draws the list |
-| `Focus.swift` | `Focus` | Bringing one window forward |
-| `Private.swift` | `SkyLight` | Every undocumented call, looked up at run time |
-| `Support.swift` | `Log`, `RunLoopThread` | Logging, version, a thread with its own run loop |
+| CLI | `main.swift`, `Service.swift` | Commands; launchd and `brew services` control |
+| Daemon | `Daemon.swift` | The service process: config, permission, signals, socket answers |
+| Control | `Control.swift` | Unix socket, client and server |
+| Config | `Config.swift` | `scope.conf` parser |
+| Switcher | `Switcher.swift` | The switcher's state; refocus after a Space switch |
+| KeyTap | `KeyTap.swift` | Event taps and the open/closed decision |
+| WindowLister | `Windows.swift` | The current Space's windows |
+| Recency | `Recency.swift` | Last-used stamps and ranking |
+| Overlay | `Overlay.swift` | Drawing the list |
+| Focus | `Focus.swift` | Bringing one window forward |
+| SkyLight | `Private.swift` | Every private symbol |
+| Support | `Support.swift` | Logging, version, a thread with its own run loop |
 
 ### Threads
 
-Nothing that waits on another app runs where it can delay a key.
+The rule: nothing that can wait on another app runs where it can delay a key **[F2, F13]**.
 
 | Thread | Runs | Must never |
 |---|---|---|
-| `scope.tap` | Event tap callbacks: decide swallow or pass, post an action | wait for anything |
-| main | `Switcher`, `Overlay`, the window list, refocus, config reloads | — |
-| `scope.recency` | AX observers and NSWorkspace stamps | hold up the tap or the overlay |
-| `scope.focus` (queue) | `Focus.window`: the target app may be the slow one | — |
-| `scope.control` | Socket accept loop; hops to main for anything touching the switcher | — |
-| concurrent | One AX query per app while building the list | take longer than 250ms per app |
+| `scope.tap` (own run loop) | Tap callbacks: decide swallow or pass, post an action to main | wait for anything, call Accessibility, take a lock held across slow work |
+| main | Switcher, Overlay, building the list, refocus, config reloads | — |
+| `scope.recency` (own run loop) | AX observers and NSWorkspace stamps | — |
+| `scope.focus` (serial queue) | `Focus.window` | — |
+| `scope.control` | Socket accept loop; runs commands on main synchronously | — |
+| concurrent pool | One AX query per app while building the list | — |
 
-## ⌘Tab, start to finish
+## KeyTap
+
+Two taps on the `scope.tap` thread, created at start **[F1]**:
+
+- **keys**: `keyDown` and `flagsChanged`, always enabled.
+- **pointer**: `mouseMoved`, `leftMouseDragged`, `leftMouseDown`, `leftMouseUp`. Created disabled; enabled only while the overlay is on screen **[F4]**.
+
+The tap, not the overlay, owns whether the switcher is open. It flips `open` the moment it swallows the activation, before any list exists, so keys that arrive while the list is still being built step or commit instead of opening a second switcher. Every opening gets a new `session` number. Calls back from main (`shown`, `closed`) carry the session and are ignored if it is stale, so a commit still being carried out cannot close the switcher the next ⌘Tab just opened.
 
 ```mermaid
-sequenceDiagram
-    autonumber
-    actor You
-    participant Tap as KeyTap (tap thread)
-    participant Sw as Switcher (main)
-    participant WL as WindowLister
-    participant Rec as Recency
-    participant Ov as Overlay
-    participant F as Focus (queue)
-
-    You->>Tap: ⌘ + Tab down
-    Tap->>Tap: open = true, session += 1, swallow
-    Tap-)Sw: show(delta, session)
-    Sw->>WL: currentSpace()
-    WL->>WL: CGWindowList on-screen, layer 0
-    WL->>WL: AX per app, in parallel, 250ms cap
-    Sw->>Rec: rank(windows)
-    Sw->>Sw: focused window to the front
-    Sw->>Ov: show(rows, selected: 1)
-    Sw->>Tap: shown(geometry, session): pointer tap on
-    You->>Tap: Tab / ⇧Tab / hover
-    Tap-)Sw: step / select
-    You->>Tap: release ⌘
-    Tap->>Tap: open = false, pointer tap off
-    Tap-)Sw: commit
-    Sw->>Ov: hide
-    Sw-)F: window(target)
-    F->>F: SetFrontProcess + make-key event, AXRaise
+stateDiagram-v2
+    [*] --> Closed
+    Closed --> Open: modifier + Tab / swallow, post show(delta, session)
+    Open --> Open: Tab or ⇧Tab / swallow, post step(±1)
+    Open --> Open: pointer over row / pass, post select(row)
+    Open --> Closed: modifier released / pass, post commit
+    Open --> Closed: esc / swallow, post cancel
+    Open --> Closed: click on row / swallow, post pick(row)
+    Open --> Closed: click elsewhere / swallow, post cancel
+    Open --> Closed: closed(session) from main
 ```
 
-The tap owns "is the switcher open". It flips the moment it swallows the activation, before the list exists, so a Tab or a ⌘ release that arrives while the list is still being built steps or commits instead of opening a second switcher. The main thread executes actions in the order they were posted.
+Callback rules:
 
-## The window list
+- `tapDisabledByTimeout` / `tapDisabledByUserInput`: re-enable the keys tap, and the pointer tap if the overlay is up **[F2]**.
+- `flagsChanged` without the modifier while open: commit. The event itself passes **[F3]**.
+- `keyDown` while open: Tab (keycode 48) steps (Shift reverses), Escape (53) cancels; both swallowed. Any other key passes.
+- `keyDown` while closed: Tab with the modifier opens; anything else passes.
+- `mouseMoved` / `leftMouseDragged`: never swallowed **[F4]**; select the row under the pointer.
+- `leftMouseDown` while open with geometry known: swallowed, so it never reaches the window underneath. The decision waits for the release.
+- `leftMouseUp` while open: swallowed; the row under the pointer is picked, or the switcher is cancelled.
+- State (`open`, `session`, `modifier`, `mouse`, `geometry`) is guarded by one lock, held only for the decision.
 
-`WindowLister.currentSpace()` is built fresh on every open; there is no window cache to go stale.
+Row hit-testing is arithmetic, in global top-left coordinates **[F5]**: `row = floor((y − frame.minY − padding) / rowHeight)`, if the point is inside the frame and the row exists.
 
-1. **Which windows** come from `CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements])`: exactly the windows ordered in on the Spaces showing, frontmost first, public API. Only layer 0 (document windows; menus, the Dock, floating panels and the menu bar sit higher), and never scope's own pid.
-2. **Which are real windows, and their titles**, come from Accessibility: `kAXWindowsAttribute` per app, mapped to window-server ids with `_AXUIElementGetWindow`, subrole and title read in one `AXUIElementCopyMultipleAttributeValues`. Only `AXStandardWindow` counts.
-3. Apps are asked in parallel (`DispatchQueue.concurrentPerform`), and a global AX messaging timeout of 250ms bounds each. An app that does not answer is represented by its last known answer (`known`, capped at 512 entries).
-4. `Recency.rank` orders the result; windows never seen used go last, in stacking order.
-5. The focused window, a live AX query, is moved to the front.
+## WindowLister
+
+Built fresh on every open; there is no window cache **[F9]**.
+
+1. `CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements])` **[F6]**. Keep layer 0 only **[F7]**, drop scope's own pid. Record id, pid, bounds, and z (position in this list, 0 frontmost).
+2. Group the ids by pid. For each pid, **in parallel** (`concurrentPerform`): read `kAXWindowsAttribute` of `AXUIElementCreateApplication(pid)`, map each element to an id with `_AXUIElementGetWindow` **[F10]**, keep the ids from step 1, and read subrole and title in one `AXUIElementCopyMultipleAttributeValues`.
+3. Keep only `AXStandardWindow` **[F8]**.
+4. An app that does not answer within the messaging timeout (250ms, set once on the system-wide element **[F13]**) is represented by its last known answer. Keep those answers in a table keyed by window id; when it passes 512 entries, drop the ids not on screen.
+5. Result: windows in stacking order with id, pid, AX element, title, frame (top-left global) and z.
+
+Fullscreen apps drop out by themselves **[F11]**. A tab group yields one window, the tab that is up **[F9]**.
 
 ## Recency
 
-Every window that gains focus is stamped with the time, its pid, frame and Space. Sources, all on the recency thread:
+A table `window id → Stamp { at, previous, pid, frame, space }`, `at` in `systemUptime` seconds, guarded by a lock, written on the `scope.recency` thread.
 
-- an `AXObserver` per app for `kAXFocusedWindowChangedNotification`, which fires for any window, including a native tab the app swaps in;
-- `didActivateApplication` and `didDeactivateApplication`, which stamp the app's focused window.
+**Stamp sources.** Each stamps the app's *focused* window (`kAXFocusedWindowAttribute`), with its frame and the active Space **[F22]**:
 
-Each stamp also keeps `previous`: the newest use at least `Recency.history` (1s) older than itself. One switch fires a burst of stamps — activated, focus changed, deactivated — so "the use before this one" must reach past the burst. `rank(_:before:)` and `lastUsed(_:before:)` answer as of a cutoff, which is how refocus looks past the stamps its own Space switch caused.
+- an `AXObserver` per regular app for `kAXFocusedWindowChangedNotification`, its run-loop source on the recency thread. Observe every running regular app at start and each app on launch. If adding the notification fails, retry every second, five times **[F14]**. Remove on terminate, along with that pid's stamps.
+- `didActivateApplicationNotification`;
+- `didDeactivateApplicationNotification`. A tab switched to by keyboard may announce nothing, but the app still names it as focused on the way out, and every Space switch deactivates something **[F9, F20]**.
+- the frontmost app once at start.
 
-A tab group ranks by the newest stamp of any window that is not on screen, has the same pid, a frame within 2pt and the same Space.
+**Bursts.** One switch stamps the same window several times within milliseconds (activated, focus changed, deactivated). Each stamp keeps `previous` = the newest use at least `history` (1s) older than itself:
 
-The table is capped at 1,024 stamps, oldest dropped first; a window untouched that long ranks by stacking order just as well. An app's stamps go when it quits.
+```
+old = stamps[id]
+previous = old == nil ? nil : (now − old.at ≥ 1s ? old.at : old.previous)
+stamps[id] = Stamp(at: now, previous, pid, frame, space)
+if stamps.count > 1024: keep the 512 newest
+```
 
-## Refocus after a Space switch
+`stamp.before(cutoff)` is the stamp as it stood at `cutoff`: itself if `at < cutoff`, else `previous` if that is `< cutoff`, else nothing.
 
-`Switcher.spaceChanged` arms a 0.3s timer on `activeSpaceDidChangeNotification`, so the switch settles first. Then `refocus`:
+**Ranking** `rank(windows, before: cutoff = ∞)`:
 
-1. `cutoff = spaceChangedAt − 1s` (`switchMargin`): the animation runs before the notification is posted, and it fires stamps of its own.
-2. Rank this Space's windows by use before `cutoff`.
-3. If a window here already has focus, leave it, unless both:
-   - no app was activated after `cutoff` (`lastActivation`), and
-   - it belongs to the frontmost app
+```
+for each window w:
+    used(w) = stamps[w.id].before(cutoff).at
+    for each other stamp s with s.id not on screen, s.pid == w.pid,
+        s.space == active Space, frames equal within 2pt:     # hidden tabs of w's tab group [F9, F12]
+        used(w) = max(used(w), s.at)
+sort: by used descending; any used before none; ties and never-used by z ascending
+```
 
-   — which means macOS carried the active app over rather than you choosing a window. Choosing from the Dock, a notification or Mission Control activates an app; scope's own refocus activation, within 0.5s, does not count.
-4. Focus the first window, but only if scope has seen it used. The order among never-used windows is stacking order, not a record of use, and macOS's own choice is better than a guess.
+A tab group therefore ranks by the newest use of any of its tabs.
 
-## Focusing
+## Switcher
 
-`SkyLight.focus` brings one window forward without the app's other windows:
+All on main.
 
-1. `GetProcessForPID` (deprecated, hidden from Swift, still exported) for the process serial number.
-2. `_SLPSSetFrontProcessWithOptions(psn, wid, kCPSUserGenerated)`, so the app is allowed to take focus.
-3. Two synthesized "make key window" event records via `SLPSPostEventRecordTo`, the same bytes AltTab posts; without them key focus can stay on whichever of the app's windows had it.
-4. `AXRaise` last, since SetFrontProcess orders the app forward but leaves the window where it was among the app's own.
+**`currentWindows()`** = `recency.rank(lister.currentSpace())`, then the focused window (a live query: frontmost app's `kAXFocusedWindowAttribute`) moved to the front **[F15]**. The stamps may not yet know about a switch made a moment ago; without this, the window you are on can rank second, and the quick toggle lands on the window you are already in.
 
-If the private calls are missing, it sets `AXMain` and activates the app instead.
+**show(delta, session):** if already visible, step instead. Build the list; if fewer than 2 windows, tell the tap `closed(session)` and stop. Select row 1 (forward) or the last row (backward). Rows: title (or `(untitled)`), the app's `localizedName`, the app's icon (cached per pid, dropped on terminate). Show the overlay on the screen containing the centre of the first window, then `tap.shown(geometry, session)`. Arm the watchdog.
 
-## Private calls
+**step(delta):** `index = (index + delta) mod count`. **select(row):** update the highlight, rearm the watchdog. **commit:** hide, then `Focus.window(selected)`. **cancel:** hide. Hiding always calls `tap.closed(session)`.
 
-All in `Private.swift`, looked up with `dlsym` at run time so a symbol that disappears degrades to a fallback instead of a launch failure. `scope status` reports what is available.
-
-| Call | For | Without it |
-|---|---|---|
-| `_AXUIElementGetWindow` | AX element → window-server id | (linked; required) |
-| `_SLPSSetFrontProcessWithOptions`, `SLPSPostEventRecordTo`, `GetProcessForPID` | single-window focus | whole app activated |
-| `SLSMainConnectionID` + `SLSGetActiveSpace` (or `CGS…`) | the active Space | tab groups rank by their own tab only |
-
-## The service
-
-### launchd
-
-`scope start` writes `~/Library/LaunchAgents/io.github.np25071984.scope.plist` and bootstraps it into `gui/$UID`:
-
-| Key | Why |
-|---|---|
-| `ProgramArguments = [<binary>, run]` | the resolved binary path, so a symlink in `PATH` cannot point launchd somewhere else |
-| `RunAtLoad` | start at login |
-| `KeepAlive = {SuccessfulExit: false}` | restart after a crash, not after `SIGTERM` (scope exits 0) |
-| `ProcessType = Interactive`, `LimitLoadToSessionType = Aqua` | it handles keys, and only makes sense in a GUI session |
-| `StandardOutPath`, `StandardErrorPath` | `~/Library/Logs/scope.log`, for anything outside the unified log |
-| `EnvironmentVariables.XDG_CONFIG_HOME` | only if set when `start` ran; launchd does not pass the shell's environment |
-
-The file is rewritten, and the agent reloaded, whenever its contents would change — a moved binary, a new `XDG_CONFIG_HOME`.
-
-If `homebrew.mxcl.scope.plist` exists, start, stop and restart run `brew services` instead, and `start` warns when both agents are loaded.
-
-### Control socket
-
-`<per-user temp dir>/scope.sock`, mode 0600. The directory comes from `confstr(_CS_DARWIN_USER_TEMP_DIR)`, which is the same for launchd and a shell, unlike `$TMPDIR`. One request per connection: a command line, a text answer, close. Commands: `ping`, `status`, `list`, `reload`. `scope run` refuses to start when something already answers `ping`, and removes a stale socket file otherwise.
-
-### Accessibility permission
-
-macOS attributes the permission to the *responsible* process. Started by launchd, that is the scope binary, identified by **path and code signature**. Started from a shell, it is the terminal app. Hence the socket: commands run from a shell cannot see windows with scope's permission.
-
-Found by experiment (macOS 26):
-
-- A bare binary signed with the same certificate and installed to the same path keeps the permission across rebuilds. A different path needs it granted again.
-- The signing identifier must be plain (`scope`) and the binary must carry no `Info.plist`, embedded or next to it. Otherwise tccd files the permission under a **bundle ID**, then fails to find an app for it (`kLSApplicationNotFoundErr`) and denies. The entry appears in System Settings with a folder icon, named after the identifier's last component, and turning it on does nothing. `tccutil reset` cannot remove it either, for the same reason.
-- An untrusted self-signed certificate is enough; codesign uses it, and the designated requirement (`identifier "scope" and certificate leaf = H"…"`) is stable. `security find-identity -v` hides such certificates, so `build.sh` searches without `-v`.
-
-Without the permission, the service asks once (`AXIsProcessTrustedWithOptions` with prompt, which adds the entry to the list) and polls every 5 seconds. Trusted but with the tap still refused means the entry belongs to another build; it keeps polling and logs how to fix it.
-
-### Install
-
-`build.sh --install` replaces the binary by rename, never rewriting it in place: the running service has the file open, and overwriting a signed binary that is in use gets the process killed. It then runs `scope restart`.
-
-## Edge cases
-
-Everything below broke at some point, or was found to need handling. "Since" is the release that first dealt with it.
-
-### Keys
-
-| Case | Handling | Since | Where |
-|---|---|---|---|
-| ⌘Tab cannot be registered as a hotkey: the Dock owns it, and System Settings has no switch for it | Session event tap at head-insert position, which sees keys before the Dock | 0.0.2 | `KeyTap.start` |
-| A slow app holds the key handler past macOS's deadline, and ⌘Tab goes to the Dock, so the system switcher appears, then scope's | Tap callback only decides and posts; the list is built on main with the key already swallowed | 2.0.0 | `KeyTap.handle` |
-| macOS disables a tap after a timeout, or when secure input starts | Re-enabled on `tapDisabledByTimeout` / `tapDisabledByUserInput` | 2.0.0 | `KeyTap.handle` |
-| Tab or ⌘ release arrives while the list is still being built | The tap's own `open` flag decides, not the overlay's visibility | 2.0.0 | `KeyTap` |
-| The next ⌘Tab arrives while the previous commit is still being carried out | Session numbers: a late `shown`/`closed` for an earlier session is ignored | 2.0.0 | `KeyTap.shown`, `closed` |
-| A modifier release is missed and the overlay would hold Tab and Escape forever | 10s watchdog, rearmed on every selection so a slow mouse choice is not cut off | 1.0.0 | `Switcher.armWatchdog` |
-| Only some keys should be taken | Swallows the activation, Tab and Escape while open; everything else passes; the ⌘ release itself passes | 0.0.1 | `KeyTap.handle` |
-
-### Pointer
-
-| Case | Handling | Since | Where |
-|---|---|---|---|
-| `mouseMoved` fires continuously | Pointer tap enabled only while the overlay is up | 1.0.0 | `KeyTap.shown`, `closed` |
-| A panel that takes clicks could take focus from the window the click is about to hand it to | Overlay ignores the mouse; rows are hit-tested arithmetically in the tap | 1.0.0 | `KeyTap.Geometry.row` |
-| A click on the overlay would reach the window underneath | Both mouse down and up are swallowed while open | 1.0.0 | `KeyTap.handle` |
-| Swallowing mouse moves would freeze the cursor | Moves and drags always pass | 1.0.0 | `KeyTap.handle` |
-
-### Which windows
-
-| Case | Handling | Since | Where |
-|---|---|---|---|
-| Native tabs: every tab is a window, only the front one is visible to Accessibility, and a tab switch fires no event. Rows had stale titles, and committing pulled the stale tab forward | The list comes from the window server's on-screen windows on every open, so the tab that is up is always the one listed | 0.0.3, structurally 2.0.0 | `WindowLister.onScreen` |
-| Closing the front tab: the tab that comes forward is never announced, and the app vanished from the list | Same: no cache, so the new front tab is simply on screen | 1.1.1, structurally 2.0.0 | `WindowLister` |
-| Helper windows apps park in every Space (Teams: a 680×932 window titled "Window"), sheets, dialogs | `AXStandardWindow` only | 0.0.1 | `WindowLister.describe` |
-| Menus, the Dock, floating panels, the menu bar | Window layer 0 only | 2.0.0 | `WindowLister.onScreen` |
-| scope's own overlay | Own pid excluded | 2.0.0 | `WindowLister.onScreen` |
-| Native-fullscreen apps | Each is its own Space, so it drops out naturally | 0.0.1 | — |
-| Apps slow to answer Accessibility (Electron, an Android emulator and IDE in a debug build) | Parallel queries, 250ms messaging timeout, last known answer reused | 2.0.0 | `WindowLister.currentSpace` |
-| A tab group has one front window and no way to target the others | Always one row; cycle tabs with the app's own shortcuts | 0.0.3 | — |
-
-### Order
-
-| Case | Handling | Since | Where |
-|---|---|---|---|
-| A quick press-and-release must toggle back, but the stamp for the switch just made may not have landed yet, so the window you are on ranked second and the overlay skipped past the one you wanted | The focused window, a live query, goes first whatever the stamps say | 1.1.0 | `Switcher.currentWindows` |
-| An app used through a tab scope never saw focused sank to the bottom | App activation stamps the app's focused window | 1.1.2 | `Recency.start` |
-| Using an app through one tab, then another, lost the first, so the app ranked as untouched for hours | A tab group ranks by the newest use of any of its tabs: same pid, frame within 2pt, same Space, not on screen | 1.2.1 | `Recency.rank` |
-| A tab switched to by keyboard fires nothing scope hears | App *deactivation* stamps too: the app still names that tab as focused on the way out, and every Space switch deactivates something | 1.2.2 | `Recency.start` |
-| Maximized windows of one app on two Spaces share a frame | The Space is part of the tab-group match | 1.2.1 | `Recency.rank` |
-| An app that has only just launched cannot take an AX observer yet | Retried every second, five times | 2.0.0 | `Recency.observe` |
+**Watchdog:** 10s without interaction tears the overlay down, in case a modifier release is ever missed. Rearmed on every selection, so choosing slowly with the mouse is not cut off.
 
 ### Refocus after a Space switch
 
-| Case | Handling | Since | Where |
-|---|---|---|---|
-| The app active on the Space you left stays active when it has nothing on the new one (Finder after a desktop click), so your last window is in front but typing goes nowhere | 0.3s after the switch settles, focus the window last used here if nothing here has focus | 1.2.0 | `Switcher.refocus` |
-| A switch caused by choosing a window (Dock, notification) must be left alone | Only acts when nothing here is focused, or when focus was carried over (below) | 1.2.0 | `Switcher.refocus` |
-| Nothing used on this Space since scope started (after a restart) | Leave focus alone rather than guess from stacking order | 1.2.2 | `Switcher.refocus` |
-| The app you left also has a window here, and macOS focuses it on arrival | No activation around the switch plus a frontmost-app window means carried over, not chosen: overridden | 2.0.1 | `Switcher.refocus` |
-| Arriving stamps the carried-over window, so it ranks first | Rank by use before the switch, with a 1s margin for the animation | 2.0.1 | `Recency.rank(_:before:)` |
-| One switch fires a burst of stamps for the same window, so the "previous" use was a few ms old | Each stamp keeps the newest use at least 1s older than itself | 2.0.1 | `Recency.stampFocused` |
-| scope's own refocus activates an app, and a quick switch back would read that as a choice | Activations of the refocused app within 0.5s are ignored | 2.0.1 | `Switcher.activated` |
+State: `spaceChangedAt`, `lastActivation`, `refocused = (pid, at)`.
 
-### Service and permission
+- On `didActivateApplicationNotification`: ignore it if it is the app scope itself just refocused within 0.5s; otherwise `lastActivation = now`.
+- On `activeSpaceDidChangeNotification` (if `refocus` is on): `spaceChangedAt = now`, and (re)start a 0.3s timer so the switch settles **[F19]**.
 
-| Case | Handling | Since | Where |
-|---|---|---|---|
-| A menu bar app gave no sign it had started | A launchd service with `scope status` | 2.1.0 | `Service`, `Daemon` |
-| A shell command gets the terminal's permission, not scope's | `status`, `list`, `reload` go through the socket | 2.1.0 | `Control` |
-| `$TMPDIR` differs between launchd and a shell | Socket in `confstr(_CS_DARWIN_USER_TEMP_DIR)` | 2.1.0 | `Control.path` |
-| A bundle identifier makes tccd look for an app that does not exist, and deny | Signed as plain `scope`, no `Info.plist` | 2.1.0 | `build.sh` |
-| `find-identity -v` hides untrusted self-signed certificates, so builds fell back to ad hoc and lost the permission on every rebuild | Search without `-v` | 2.1.0 | `build.sh` |
-| A bootstrap straight after a bootout fails with an I/O error | Retried for up to 3s | 2.1.0 | `Service.bootstrap` |
-| Overwriting a signed binary that is running gets it killed | Install by rename | 2.1.0 | `build.sh` |
-| launchd does not pass on the shell's environment | `XDG_CONFIG_HOME` written into the plist | 2.1.0 | `Service.writePlist` |
-| Trusted, but the tap is refused | The permission entry belongs to another build: keep polling, log the fix | 2.0.0 | `Daemon.start` |
-| Two copies would both take ⌘Tab | `scope run` exits if the socket answers; `start` warns about a loaded Homebrew agent; `build.sh` warns about a running Scope.app | 2.1.0 | `Daemon.run`, `Service`, `build.sh` |
+When the timer fires, unless the overlay is up:
+
+```
+cutoff = spaceChangedAt − 1s                 # the animation precedes the notification and stamps windows [F20]
+here   = recency.rank(lister.currentSpace(), before: cutoff)
+focused = live focused window
+if focused is in here:
+    carried = lastActivation < cutoff and focused.pid == frontmost app pid     # [F21]
+    if not carried or here.first == focused: return                            # chosen, or already right
+target = here.first
+if target == nil or target has no stamp before cutoff: return                   # never seen used: don't guess
+refocused = (target.pid, now)
+Focus.window(target)
+```
+
+## Focus
+
+On the `scope.focus` queue, because the target app may be the slow one:
+
+1. `GetProcessForPID(pid)` → process serial number. (Deprecated and hidden from Swift; still exported.)
+2. `_SLPSSetFrontProcessWithOptions(&psn, windowID, 0x200)`.
+3. Post the make-key event record twice via `SLPSPostEventRecordTo(&psn, bytes)` **[F17]**: 0xf8 zero bytes; `[0x04] = 0xf8`, `[0x3a] = 0x10`, window id little-endian at `0x3c…0x3f`, `0xff` at `0x20…0x2f`; first with `[0x08] = 0x01`, then `[0x08] = 0x02`.
+4. If any of that is unavailable or fails: set `kAXMainAttribute` on the window and activate the app (on main).
+5. Always `AXRaise` last.
+
+## Overlay
+
+A borderless `NSPanel` with `.nonactivatingPanel`, `ignoresMouseEvents = true` **[F18]**, level `.popUpMenu`, clear background, shadow, `hidesOnDeactivate = false`, collection behaviour `canJoinAllSpaces, fullScreenAuxiliary, transient, ignoresCycle`. Shown with `orderFrontRegardless`. Icons and titles only: thumbnails would need Screen Recording **[F6]**.
+
+| Property | Value |
+|---|---|
+| Width | 620 |
+| Height | 2 × padding + rows × 54 |
+| Padding | 10 |
+| Corner radius | 16 |
+| Position | centred in the screen's `visibleFrame`, rounded to whole points |
+| Background | white 0.09, alpha 0.94; 1pt border white, alpha 0.13 |
+| Selected row | sRGB (0.29, 0.40, 0.90), alpha 0.90, radius 10, inset by the padding |
+| Icon | 36 × 36 at x = padding + 12, vertically centred in the row |
+| Text x | padding + 12 + 36 + 14 |
+| Title | system font 14, white alpha 0.98, at row y + 9, height 20, truncated at the tail |
+| App name | system font 11, white alpha 0.52, at row y + 29, height 16, truncated at the tail |
+
+The view is flipped (top-left origin). `show` returns the frame converted to global top-left coordinates for the tap **[F5]**.
+
+## Private symbols
+
+All in one file, looked up with `dlsym` (the SkyLight framework handle, then `RTLD_DEFAULT`) so a missing symbol degrades instead of failing to launch **[F22]**. `_AXUIElementGetWindow` is the exception: declared with `@_silgen_name`, it is required.
+
+| Symbol | For | Fallback |
+|---|---|---|
+| `_AXUIElementGetWindow` | AX element → window id | none |
+| `_SLPSSetFrontProcessWithOptions`, `SLPSPostEventRecordTo`, `GetProcessForPID` | single-window focus | activate the app |
+| `SLSMainConnectionID`/`CGSMainConnectionID`, `SLSGetActiveSpace`/`CGSGetActiveSpace` | the active Space | tab groups match by pid and frame only |
+
+## Service
+
+### `scope run` (Daemon)
+
+1. If the control socket answers `ping`, another instance runs: exit 1.
+2. `NSApplication.shared` with activation policy `.accessory`: no Dock icon, but panels work.
+3. Load the config, open the control socket, install signal handlers: `SIGHUP` reloads, `SIGTERM` and `SIGINT` remove the socket and exit 0 (so launchd does not restart it). Use dispatch signal sources after setting the signal to `SIG_IGN`.
+4. If `AXIsProcessTrusted()`: start. Otherwise call `AXIsProcessTrustedWithOptions` with the prompt once **[F16]**, and poll every 5s.
+5. Starting creates the taps. If they are refused although trusted, the permission entry belongs to another build: log how to fix it and keep polling **[F24, F25]**.
+6. `NSApp.run()`.
+
+### Configuration
+
+`$XDG_CONFIG_HOME/scope/scope.conf` if that is an absolute path, else `~/.config/scope/scope.conf`. Never written.
+
+- Lines are `key = value`; `#` starts a comment anywhere; blank lines ignored; keys case-insensitive.
+- `modifier` = `cmd` | `alt` | `ctrl` (default `cmd`); `mouse`, `refocus` (default `true`); `trace` (default `false`). Booleans accept `true/false`, `yes/no`, `on/off`, `1/0`.
+- A malformed line, bad value or unknown key keeps the default for that line and becomes a warning, logged and shown by `status` and `reload`. A missing file means all defaults.
+
+### Control socket
+
+`confstr(_CS_DARWIN_USER_TEMP_DIR)` + `scope.sock`, mode 0600 **[F29]**. The server unlinks a stale file before binding. One request per connection: the client writes a command and a newline, reads text to EOF. Server read timeout 2s, client 5s. Commands run on main.
+
+| Command | Answer |
+|---|---|
+| `ping` | `pong` |
+| `status` | version, pid, uptime, binary path, permission, switcher state, private-symbol availability, config path, effective settings, warnings |
+| `list` | `currentWindows()` with app, title, window id and time since last use |
+| `reload` | re-read the config, apply it, answer with the effective settings and warnings |
+
+Commands run from a shell must go through the socket: they have the terminal's permission, not scope's **[F23]**, and only the service has the stamps.
+
+### launchd
+
+Label `io.github.np25071984.scope`, file `~/Library/LaunchAgents/<label>.plist`, domain `gui/<uid>`.
+
+| Key | Value | Why |
+|---|---|---|
+| `ProgramArguments` | `[<this binary, symlinks resolved>, "run"]` | the permission is tied to the real path **[F24]** |
+| `RunAtLoad` | true | start at login |
+| `KeepAlive` | `{SuccessfulExit: false}` | restart after a crash, not after a clean stop |
+| `ProcessType` | `Interactive` | it handles keys |
+| `LimitLoadToSessionType` | `Aqua` | only meaningful in a GUI session |
+| `StandardOutPath`, `StandardErrorPath` | `~/Library/Logs/scope.log` | anything outside the unified log |
+| `EnvironmentVariables` | `XDG_CONFIG_HOME`, only if set | launchd does not pass the shell's environment **[F29]** |
+
+Commands:
+
+- **start**: write the file if its contents differ. Not loaded → `bootstrap`. Loaded and the file changed → `bootout`, then `bootstrap`. Loaded and not running → `kickstart`. Then wait up to 3s for the socket to answer; if the permission is missing, say so and open `x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility`.
+- **stop**: `bootout`. The file stays, so it starts again at the next login.
+- **restart**: as start if not loaded or changed, else `kickstart -k`; then the same wait.
+- **bootstrap** is retried every 200ms for up to 3s **[F28]**; `bootout` waits until the label is gone.
+- **status**: `launchctl print gui/<uid>/<label>` for state and pid (top-level `pid =` and `last exit code =` lines), then the socket's `status`. Exit 0 running, 3 not running, 4 without permission.
+- **logs**: exec `log stream --style compact --predicate 'subsystem == "io.github.np25071984.scope" AND process == "scope"'`, or `log show --last <t>`.
+- **list**: the socket's `list`; `--direct` builds the list in-process instead (stacking order, terminal's permission).
+
+If `~/Library/LaunchAgents/homebrew.mxcl.scope.plist` exists, `brew services` owns the service: start, stop and restart run `brew services <cmd> scope`, and status reads that label. Warn if both agents are loaded: two copies would both take ⌘Tab.
+
+### Logging
+
+Unified log, subsystem `io.github.np25071984.scope`. Lifecycle and warnings always; switcher decisions (each stamp, each list with its build time, apps that timed out, commits, refocus decisions) only with `trace = true`. Log at `notice` or above so `log stream` shows it without flags **[F30]**.
+
+### Build, sign, install
+
+- `swift build -c release`, executable product `scope`, macOS 13+, links AppKit and ApplicationServices.
+- Sign: `codesign --force --options runtime --identifier scope --sign <identity>`. The identifier must be plain and there must be no `Info.plist` **[F25]**. The identity is `$SCOPE_SIGN_IDENTITY`, else the first *Developer ID Application*, *Apple Development* or *Scope Dev* in `security find-identity -p codesigning` (not `-v` **[F26]**), else ad hoc with a warning that the permission will not survive a rebuild **[F24]**.
+- Install: copy to `<prefix>/bin/scope.new`, `mv -f` over `<prefix>/bin/scope` **[F27]**, run `scope restart`. Default prefix `~/.local`.
+- Uninstall: `scope stop`, `bootout`, remove the plist and the binary; keep `scope.conf`.
+
+## Constants
+
+| Constant | Value | Why |
+|---|---|---|
+| AX messaging timeout | 250ms | a slow app costs its own rows' freshness, not the switcher **[F13]** |
+| Known-answer table | trimmed past 512 | windows not on screen are asked about again when they return |
+| Stamp table | past 1,024, keep newest 512 | an untouched window ranks by stacking order just as well |
+| Stamp history | 1s | reaches past one switch's burst of stamps |
+| Frame match | ±2pt | tab-group membership |
+| Observer retry | 1s × 5 | newly launched apps **[F14]** |
+| Watchdog | 10s | a missed modifier release |
+| Refocus settle | 0.3s | after the Space-change notification |
+| Switch margin | 1s | the animation before the notification, and its stamps **[F20]** |
+| Own-activation window | 0.5s | scope's refocus is not a user's choice |
+| Permission poll | 5s | no notification exists **[F16]** |
+| Bootstrap retry | 200ms × 15 | **[F28]** |
+| Socket timeouts | server 2s, client 5s | |
+
+## Verification
+
+A rebuild is done when every scenario passes.
+
+**Keys**
+
+- [ ] ⌘Tab opens scope's list, never the system switcher, including while an Android emulator build or a busy Electron app is running.
+- [ ] A quick ⌘Tab press-and-release, repeated, toggles between the same two windows.
+- [ ] Two quick ⌘Tabs in a row: the second lands on the window you just left, not on a third.
+- [ ] Tab pressed again before the list appears steps; ⌘ released before it appears commits.
+- [ ] esc closes without switching; other keys with ⌘ held (⌘C, ⌘`) work normally.
+- [ ] After typing in a password field, ⌘Tab still opens scope.
+- [ ] With `modifier = alt`, ⌥Tab opens scope and ⌘Tab opens the system switcher.
+
+**Pointer**
+
+- [ ] Hover selects without switching; releasing ⌘ switches to the hovered row.
+- [ ] Clicking a row switches; clicking elsewhere closes; neither click reaches the window underneath.
+- [ ] The cursor never stalls while the list is open.
+
+**Which windows**
+
+- [ ] Only windows on the current Space; none from other Spaces or fullscreen apps.
+- [ ] No Teams helper windows, sheets, dialogs, menus or panels.
+- [ ] A Terminal window with tabs is one row titled after the tab that is up, also after switching tabs by keyboard and after closing the front tab.
+- [ ] Committing to a tabbed window brings forward the tab that is up, not another.
+- [ ] Choosing one window of an app with several brings forward that window only.
+
+**Order**
+
+- [ ] Most recently used first; windows never used since scope started last, in stacking order.
+- [ ] Use Terminal through tab A, switch to tab B by keyboard, use another app: Terminal still ranks above windows untouched for longer.
+
+**Refocus**
+
+- [ ] Click the desktop (Finder active), switch to a Space with a Terminal: typing goes to Terminal.
+- [ ] The app you left has a window on the destination Space: the window you last used there gets focus, not that app's.
+- [ ] Switching Spaces by clicking a window in the Dock or a notification keeps that window.
+- [ ] After `scope restart`, switching to a Space with no recorded use leaves focus alone.
+- [ ] `refocus = false` turns all of it off.
+
+**Service**
+
+- [ ] `./build.sh --install`, grant the permission: scope starts within 5s without a restart.
+- [ ] Rebuild and reinstall: still allowed, no prompt.
+- [ ] `kill -9` the service: launchd restarts it. `scope stop`: it stays stopped until `scope start` or the next login.
+- [ ] `scope reload` and `kill -HUP` apply config changes; a bad value is reported and the rest still apply.
+- [ ] `scope status` exits 0 / 3 / 4 as documented; `scope list` works from a terminal without Accessibility permission.
+- [ ] A second `scope run` exits instead of taking ⌘Tab twice.
