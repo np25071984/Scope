@@ -53,7 +53,6 @@ final class KeyTap {
     private var session = 0
     private var modifier: CGEventFlags = .maskCommand
     private var mouse = true
-    private var enabled = true
     private var geometry: Geometry?
 
     private var keyTap: CFMachPort?
@@ -99,11 +98,10 @@ final class KeyTap {
         return true
     }
 
-    func configure(modifier: CGEventFlags, mouse: Bool, enabled: Bool) {
+    func configure(modifier: CGEventFlags, mouse: Bool) {
         lock.lock()
         self.modifier = modifier
         self.mouse = mouse
-        self.enabled = enabled
         lock.unlock()
     }
 
@@ -177,7 +175,7 @@ final class KeyTap {
                 if key == Self.escape { close(then: .cancel); return nil }
                 return pass
             }
-            guard enabled, key == Self.tab, flags.contains(modifier) else { return pass }
+            guard key == Self.tab, flags.contains(modifier) else { return pass }
             open = true
             session &+= 1
             post(.show(delta: delta, session: session))

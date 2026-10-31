@@ -1,15 +1,35 @@
 import Foundation
 import os
 
-// Tracing goes to the unified log. Off by default; switch it on from the menu,
-// then watch it with:
-//   log stream --predicate 'subsystem == "io.github.np25071984.scope"'
-enum Log {
-    private static let logger = Logger(subsystem: "io.github.np25071984.scope", category: "scope")
+let version = "2.0.1"
 
-    // Read on several threads, written from the menu; a stale read costs one
-    // line of trace either way.
+extension CommandLine {
+    /// This binary's absolute path, symlinks resolved: what launchd must run,
+    /// and what macOS ties the Accessibility permission to.
+    static var executable: String {
+        var size: UInt32 = 0
+        _NSGetExecutablePath(nil, &size)
+        var buffer = [CChar](repeating: 0, count: Int(size))
+        guard _NSGetExecutablePath(&buffer, &size) == 0 else { return arguments[0] }
+        var resolved = [CChar](repeating: 0, count: Int(PATH_MAX))
+        return realpath(buffer, &resolved) != nil ? String(cString: resolved) : String(cString: buffer)
+    }
+}
+
+// Everything goes to the unified log; `scope logs` follows it. Lifecycle
+// messages and warnings always, the switcher's decisions only with
+// `trace = true` in scope.conf.
+enum Log {
+    static let subsystem = "io.github.np25071984.scope"
+    private static let logger = Logger(subsystem: subsystem, category: "scope")
+
+    // Read on several threads, written on reload; a stale read costs one line
+    // of trace either way.
     nonisolated(unsafe) static var tracing = false
+
+    static func info(_ message: String) {
+        logger.notice("\(message, privacy: .public)")
+    }
 
     static func trace(_ message: @autoclosure () -> String) {
         guard tracing else { return }

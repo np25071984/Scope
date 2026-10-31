@@ -42,9 +42,8 @@ final class Switcher {
         return true
     }
 
-    func configure(modifier: CGEventFlags, mouse: Bool, enabled: Bool) {
-        tap.configure(modifier: modifier, mouse: mouse, enabled: enabled)
-        if !enabled { cancel() }
+    func configure(modifier: CGEventFlags, mouse: Bool) {
+        tap.configure(modifier: modifier, mouse: mouse)
     }
 
     // MARK: The list
