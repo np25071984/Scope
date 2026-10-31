@@ -30,7 +30,7 @@ To avoid that for local builds, create a self-signed certificate once: Keychain 
 | Enabled | turn the switcher off without quitting |
 | Modifier | ⌘ replaces the system switcher; ⌥ runs alongside it |
 | Pointer Support | hover selects a row, click switches, click elsewhere dismisses |
-| Refocus After Space Switch | after a Space switch, focus the window last used there when macOS leaves nothing focused |
+| Refocus After Space Switch | after a Space switch, focus the window last used there when macOS leaves nothing focused, or when it only carried the previously active app over to one of its windows here |
 | Launch at Login | registers Scope as a login item |
 | Trace to System Log | see *Diagnostics* |
 | Hide Menu Bar Icon | open Scope again (Spotlight, Finder) to bring it back |
@@ -60,6 +60,7 @@ Most of the Lua version's repair stages (ghosts, reconcile, the tab-group re-ran
 - **Which windows are on this Space** comes from the window server (`CGWindowListCopyWindowInfo`, on-screen only), which is public API and lists the tab that is up, never one that is swapped out.
 - **Which of them are real windows, and their titles**, comes from Accessibility, asked fresh on every open, joined to the window server's list by window id. `AXStandardWindow` only, as before.
 - **Most recently used** is kept by hand: an Accessibility observer per app stamps every focused-window change, which also fires for a native tab the app swaps in. App activation and deactivation stamp too, as in 1.2.2. Windows never seen used rank below every stamped one, in stacking order. A tab group still ranks by the newest use of any of its tabs.
+- **Refocus after a Space switch** ranks by use from before the switch, since arriving on a Space stamps the window macOS brings forward. A focused window is left alone unless no app was activated around the switch and it belongs to the app that was already active, which means macOS carried that app over rather than you choosing the window.
 - **Focusing** brings forward just the chosen window, through the same private SkyLight calls Hammerspoon and AltTab use. If those calls are missing, Scope activates the whole app instead.
 - **The overlay** has the same look and geometry as before.
 
