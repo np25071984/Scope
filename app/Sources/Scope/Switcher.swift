@@ -13,6 +13,9 @@ final class Switcher {
     private var index = 0
     private var watchdog: Timer?
     private var refocusTimer: Timer?
+    private var spaceChangedAt: TimeInterval = 0
+    private var lastActivation: TimeInterval = 0
+    private var refocused: (pid: pid_t, at: TimeInterval)?
     private var icons: [pid_t: NSImage] = [:]
 
     var refocusEnabled = true
@@ -24,6 +27,12 @@ final class Switcher {
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in self?.spaceChanged() }
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            self?.activated(app?.processIdentifier)
+        }
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main
         ) { [weak self] note in
@@ -174,10 +183,29 @@ final class Switcher {
     // you arrive with your last window in front but not focused. If nothing on
     // the new Space has focus once the switch settles, the window you used last
     // here gets it. A window that already has focus is left alone, because a
-    // Space change is as often the result of choosing one.
+    // Space change is as often the result of choosing one -- unless it belongs
+    // to the app that was active on the Space you left and no app was
+    // activated around the switch. That is macOS carrying the active app over
+    // to its window here, not a choice: choosing a window, from the Dock, a
+    // notification or Mission Control, activates its app. Scope's own refocus
+    // activates one too, and a quick switch back must not take that for a
+    // choice.
+    //
+    // The arrival itself stamps the carried-over window as used, so the
+    // decision ranks by use before the switch. The margin covers the
+    // animation, which runs before the notification is posted, and the
+    // stamps it fires.
+    private static let switchMargin: TimeInterval = 1
+
+    private func activated(_ pid: pid_t?) {
+        let now = ProcessInfo.processInfo.systemUptime
+        if let refocused, refocused.pid == pid, now - refocused.at < 0.5 { return }
+        lastActivation = now
+    }
 
     private func spaceChanged() {
         guard refocusEnabled else { return }
+        spaceChangedAt = ProcessInfo.processInfo.systemUptime
         refocusTimer?.invalidate()
         refocusTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
             self?.refocus()
@@ -188,19 +216,26 @@ final class Switcher {
         refocusTimer = nil
         guard !overlay.isVisible else { return }
 
-        let here = currentWindows()
-        if let focused = AX.focusedWindowID(), here.contains(where: { $0.id == focused }) {
-            Log.trace("refocus: window \(focused) already focused")
-            return
+        let cutoff = spaceChangedAt - Self.switchMargin
+        let here = recency.rank(lister.currentSpace(), before: cutoff)
+        if let focused = AX.focusedWindowID(), let window = here.first(where: { $0.id == focused }) {
+            let carried = lastActivation < cutoff
+                && window.pid == NSWorkspace.shared.frontmostApplication?.processIdentifier
+            guard carried, here.first?.id != focused else {
+                Log.trace("refocus: window \(focused) already focused")
+                return
+            }
+            Log.trace("refocus: window \(focused) carried over by macOS, not chosen")
         }
         // Only a window scope has seen used. The order among windows it has
         // not is stacking order, not a record of use; macOS's own choice, or
         // none, is better than a guess.
-        guard let target = here.first, recency.lastUsed(target.id) != nil else {
+        guard let target = here.first, recency.lastUsed(target.id, before: cutoff) != nil else {
             Log.trace("refocus: nothing used on this Space since launch; left alone")
             return
         }
         Log.trace("refocus: \(target.id) \"\(target.title)\"")
+        refocused = (target.pid, ProcessInfo.processInfo.systemUptime)
         Focus.window(target)
     }
 }
