@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds the `scope` binary into app/build/ and signs it.
+# Builds the `scope` binary into build/ and signs it.
 #
 #   ./build.sh                          build only
 #   ./build.sh --install [--prefix P]   install to P/bin/scope (default ~/.local)
