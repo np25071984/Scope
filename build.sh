@@ -76,8 +76,9 @@ if pgrep -xq Scope; then
 fi
 
 mkdir -p "$prefix/bin"
-# Replaced by rename, never rewritten in place: the running service keeps the
-# old file open, and overwriting a signed binary that is in use gets it killed.
+# Replaced by rename, never rewritten in place: the kernel caches a binary's
+# signature, and rewriting a signed binary in place is known to get it killed.
+# A rename gives the new binary a new file, so that cannot happen.
 cp build/scope "$target.new"
 mv -f "$target.new" "$target"
 echo "installed $target"

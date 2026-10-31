@@ -1,0 +1,140 @@
+#!/bin/bash
+# Re-checks how macOS treats the Accessibility permission of a bare, signed
+# binary run by launchd: IMPLEMENTATION.md facts F23–F26. Run it after a major
+# macOS release, or when scope's permission starts misbehaving.
+#
+#   scripts/tcc-probe start        build the probe, run it under launchd and ask
+#                                  for the permission; then turn on
+#                                  "scope-tcc-probe" in System Settings
+#   scripts/tcc-probe verify       the checks below, with expected results
+#   scripts/tcc-probe bundle-id --yes
+#                                  F25: the same probe signed with a reverse-DNS
+#                                  identifier. Leaves an entry in System
+#                                  Settings that cannot be removed.
+#   scripts/tcc-probe clean        unload and delete everything it made
+#
+# Signs with $SCOPE_SIGN_IDENTITY, else the certificate build.sh would use.
+# Works in $SCOPE_PROBE_DIR (default: the per-user temp dir). Afterwards,
+# remove the probe's entries from the Accessibility list by hand.
+set -euo pipefail
+
+dir="${SCOPE_PROBE_DIR:-$(getconf DARWIN_USER_TEMP_DIR)scope-tcc-probe}"
+name=scope-tcc-probe
+domain="gui/$(id -u)"
+
+identity="${SCOPE_SIGN_IDENTITY:-}"
+if [ -z "$identity" ]; then
+  identity="$(security find-identity -p codesigning 2>/dev/null \
+    | grep -E '"(Developer ID Application|Apple Development|Scope Dev)' \
+    | head -n 1 | awk '{print $2}' || true)"
+fi
+
+write_source() {
+  cat > "$dir/main.swift" <<'EOF'
+import AppKit
+import ApplicationServices
+let prompt = CommandLine.arguments.contains("--prompt")
+let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: prompt] as CFDictionary
+let trusted = AXIsProcessTrustedWithOptions(options)
+let tap = CGEvent.tapCreate(
+    tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
+    eventsOfInterest: CGEventMask(1 << CGEventType.keyDown.rawValue),
+    callback: { _, _, event, _ in Unmanaged.passUnretained(event) }, userInfo: nil)
+print("build=\(BUILD) parent=\(getppid() == 1 ? "launchd" : "shell") bundle=\(Bundle.main.bundleIdentifier ?? "none") trusted=\(trusted) tap=\(tap != nil ? "created" : "refused")")
+EOF
+}
+
+# build <number> <directory> <signing identifier>
+build() {
+  mkdir -p "$2"
+  echo "let BUILD = $1" > "$dir/build.swift"
+  swiftc -O "$dir/main.swift" "$dir/build.swift" -o "$2/$name" 2>&1 | grep -v "^$" || true
+  codesign --force --options runtime --identifier "$3" --sign "$identity" "$2/$name" 2>/dev/null
+}
+
+# launch <binary> [--prompt]: runs it as a one-shot launchd agent, prints its line
+launch() {
+  local plist="$dir/$name.plist" log="$dir/$name.log"
+  local args="<string>$1</string>"
+  [ "${2:-}" = --prompt ] && args="$args<string>--prompt</string>"
+  cat > "$plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$name</string>
+  <key>ProgramArguments</key><array>$args</array>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>$log</string>
+  <key>StandardErrorPath</key><string>$log</string>
+</dict></plist>
+EOF
+  : > "$log"
+  launchctl bootout "$domain/$name" 2>/dev/null || true
+  launchctl bootstrap "$domain" "$plist"
+  for _ in $(seq 1 30); do [ -s "$log" ] && break; sleep 0.2; done
+  launchctl bootout "$domain/$name" 2>/dev/null || true
+  cat "$log"
+}
+
+# check <label> <expected substring> <actual line>
+check() {
+  if [[ "$3" == *"$2"* ]]; then result=PASS; else result=FAIL; failed=1; fi
+  printf '%-4s  %-46s expected %-28s got: %s\n' "$result" "$1" "$2" "$3"
+}
+
+case "${1:-}" in
+  start)
+    [ -n "$identity" ] || { echo "no signing certificate; see README.md, Signing" >&2; exit 1; }
+    mkdir -p "$dir"; write_source
+    build 1 "$dir/a" "$name"
+    launch "$dir/a/$name" --prompt
+    echo
+    echo "Now turn on \"$name\" in System Settings → Privacy & Security → Accessibility"
+    echo "(add $dir/a/$name with + if it is not listed), then run: $0 verify"
+    ;;
+
+  verify)
+    [ -x "$dir/a/$name" ] || { echo "run $0 start first" >&2; exit 1; }
+    failed=0
+    check "F23 same build, under launchd" "trusted=true tap=created" "$(launch "$dir/a/$name")"
+    build 2 "$dir/a" "$name"
+    check "F24 rebuilt, same path and certificate" "trusted=true tap=created" "$(launch "$dir/a/$name")"
+    check "F23 same binary, run from this shell" "parent=shell" "$("$dir/a/$name")"
+    echo "      (trusted from a shell only if this terminal app itself has the permission)"
+    mkdir -p "$dir/b"; cp "$dir/a/$name" "$dir/b/$name"
+    check "F24 same binary, another path" "trusted=false" "$(launch "$dir/b/$name")"
+    check "F25 no Info.plist, plain identifier" "bundle=none" "$(launch "$dir/a/$name")"
+    exit "$failed"
+    ;;
+
+  bundle-id)
+    if [ "${2:-}" != --yes ]; then
+      echo "This leaves an Accessibility entry (folder icon) that cannot be removed. Re-run with --yes." >&2
+      exit 2
+    fi
+    mkdir -p "$dir"; write_source
+    build 1 "$dir/dns" "io.github.np25071984.$name"
+    launch "$dir/dns/$name" --prompt
+    echo
+    echo "Turn on the new entry in System Settings (shown with a folder icon), then run:"
+    echo "  $0 bundle-id-check"
+    ;;
+
+  bundle-id-check)
+    failed=0
+    check "F25 reverse-DNS identifier, allowed" "trusted=false" "$(launch "$dir/dns/$name")"
+    echo "      tccd should log: failed to find an Application URL for bundle ID"
+    exit "$failed"
+    ;;
+
+  clean)
+    launchctl bootout "$domain/$name" 2>/dev/null || true
+    rm -rf "$dir"
+    echo "removed $dir; remove the \"$name\" entries from the Accessibility list by hand"
+    ;;
+
+  *)
+    sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+    exit 2
+    ;;
+esac

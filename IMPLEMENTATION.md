@@ -34,52 +34,76 @@ A specification for building scope from nothing. It states what scope must do, t
 
 ## Platform facts
 
-What macOS does, as observed while building scope (most recently on macOS 26). Each one broke an earlier design; re-check them when a macOS release changes behaviour.
+What macOS does, as found while building scope, most recently on macOS 26. Each fact carries how sure we are of it:
+
+- **observed**: seen happen while building scope, or measured with a probe;
+- **documented**: Apple's documentation or headers say so, and nothing here contradicted it;
+- **believed**: carried over from an earlier implementation, or reported elsewhere, and handled defensively, but not reproduced against the current code.
+
+Re-check the *believed* ones before relying on them, and all of them after a major macOS release. [`scripts/tcc-probe`](scripts/tcc-probe) re-checks F23–F26 in a couple of minutes.
 
 ### Keys and events
 
-- **F1.** The Dock owns <kbd>⌘</kbd> <kbd>Tab</kbd>. It cannot be registered as a hotkey (the registration fails or never fires), it is not a symbolic hotkey, and System Settings has no switch to disable it. A session event tap (`.cgSessionEventTap`, `.headInsertEventTap`, `.defaultTap`) sees the key before the Dock and can swallow it.
-- **F2.** An event tap callback has a deadline. Miss it and macOS disables the tap (`tapDisabledByTimeout`) and delivers the key onwards: the system switcher appears. Secure input (password fields) disables taps too (`tapDisabledByUserInput`). A disabled tap must be re-enabled by hand.
-- **F3.** The modifier's release arrives as `flagsChanged`, not `keyUp`.
-- **F4.** Swallowing `mouseMoved` freezes the cursor. A tap that sees `mouseMoved` runs its callback continuously.
-- **F5.** Event locations are in global coordinates with a top-left origin. AppKit window frames have a bottom-left origin: `cgY = primaryScreenHeight − appKitMaxY`.
+- **F1.** The Dock owns <kbd>⌘</kbd> <kbd>Tab</kbd>. It cannot be registered as a hotkey (the registration fails or never fires), it is not a symbolic hotkey, and System Settings has no switch to disable it. A session event tap (`.cgSessionEventTap`, `.headInsertEventTap`, `.defaultTap`) sees the key before the Dock and can swallow it. *(observed)*
+- **F2.** An event tap callback has a deadline. Miss it and the key goes on to the Dock: the system switcher appears, then scope's. *(observed)* macOS then disables the tap (`tapDisabledByTimeout`), and secure input (password fields) disables taps too (`tapDisabledByUserInput`); a disabled tap must be re-enabled by hand. *(documented)*
+- **F3.** The modifier's release arrives as `flagsChanged`, not `keyUp`. *(observed)*
+- **F4.** A tap that sees `mouseMoved` runs its callback on every pointer movement. *(observed)* Swallowing `mouseMoved` freezes the cursor. *(believed)*
+- **F5.** Event locations are in global coordinates with a top-left origin. AppKit window frames have a bottom-left origin: `cgY = primaryScreenHeight − appKitMaxY`. *(documented)*
 
 ### Windows
 
-- **F6.** `CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements])` lists exactly the windows ordered in on the Spaces currently showing, frontmost first, with id, pid, layer and bounds. It is public, fast, and needs no permission for those fields. Window *titles* from it need Screen Recording permission, so titles must come from Accessibility.
-- **F7.** Document windows are layer 0. The menu bar, Dock, menus and floating panels are higher layers.
-- **F8.** Many apps keep invisible helper windows in every Space to render popups (Microsoft Teams keeps a 680×932 window titled "Window"). They, and sheets and dialogs, have an Accessibility subrole other than `AXStandardWindow`.
-- **F9.** Native window tabs: every tab is a separate window with its own id, but only the front tab is on screen and visible to Accessibility. Switching or closing tabs swaps windows without reliable notifications. A tab switched to by keyboard may announce nothing at all. The tabs behind cannot be listed or targeted.
-- **F10.** An Accessibility window element maps to its window-server id only through the private `_AXUIElementGetWindow`.
-- **F11.** Native-fullscreen windows each live on their own Space.
-- **F12.** Maximized windows of one app on two Spaces can have identical frames.
+- **F6.** `CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements])` lists exactly the windows ordered in on the Spaces currently showing, frontmost first, with id, pid, layer and bounds, without any permission. *(observed)* Window *titles* from it need Screen Recording permission, so titles must come from Accessibility. *(documented)*
+- **F7.** Document windows are layer 0. The menu bar, Dock, menus and floating panels are higher layers. *(observed)*
+- **F8.** Many apps keep invisible helper windows in every Space to render popups (Microsoft Teams keeps a 680×932 window titled "Window"). They, and sheets and dialogs, have an Accessibility subrole other than `AXStandardWindow`. *(observed)*
+- **F9.** Native window tabs: every tab is a separate window with its own id, but only the front tab is on screen and visible to Accessibility, and the tabs behind cannot be listed or targeted. *(observed)* Switching or closing tabs swaps windows without reliable notifications; a tab switched to by keyboard may announce nothing at all. *(believed: observed through an earlier window cache; not reproduced against an `AXObserver` on `kAXFocusedWindowChangedNotification`)*
+- **F10.** An Accessibility window element maps to its window-server id only through the private `_AXUIElementGetWindow`. *(observed)*
+- **F11.** Native-fullscreen windows each live on their own Space. *(observed)*
+- **F12.** Maximized windows of one app on two Spaces can have identical frames. *(observed)*
 
 ### Accessibility
 
-- **F13.** Some apps answer Accessibility slowly — Electron apps, and an Android emulator and IDE during a debug build — and the default timeout is seconds. `AXUIElementSetMessagingTimeout` on the system-wide element sets it for every call the process makes.
-- **F14.** `AXObserverAddNotification` fails for an app that has only just launched; it succeeds a few seconds later.
-- **F15.** Notifications are delivered asynchronously. A focus change from a switch made a moment ago may not have been seen yet when the next ⌘Tab arrives.
-- **F16.** `AXIsProcessTrusted` changes post no notification; it must be polled. `AXIsProcessTrustedWithOptions` with the prompt option adds the process to the Accessibility list, so there is a switch to turn on.
+- **F13.** Some apps answer Accessibility slowly — Electron apps, and an Android emulator and IDE during a debug build — and the default timeout is seconds. *(observed)* `AXUIElementSetMessagingTimeout` on the system-wide element sets it for every call the process makes. *(documented)*
+- **F14.** `AXObserverAddNotification` fails for an app that has only just launched, and succeeds a few seconds later. *(believed)*
+- **F15.** Notifications are delivered asynchronously. A focus change from a switch made a moment ago may not have been seen yet when the next ⌘Tab arrives. *(observed)*
+- **F16.** `AXIsProcessTrusted` changes post no notification; it must be polled. `AXIsProcessTrustedWithOptions` with the prompt option adds the process to the Accessibility list, so there is a switch to turn on. *(observed)*
 
 ### Focus and Spaces
 
-- **F17.** Activating an app brings all its windows forward. One window alone needs the private `_SLPSSetFrontProcessWithOptions` with `kCPSUserGenerated` (0x200), then two synthesized "make key window" event records via `SLPSPostEventRecordTo`, then `AXRaise`. Without the event records, key focus can stay on another window of the same app. `AXRaise` must come last, because SetFrontProcess orders the app but not the window among the app's own.
-- **F18.** A panel that accepts mouse events can take focus. `.nonactivatingPanel` with `ignoresMouseEvents` cannot.
-- **F19.** Switching Spaces does not reliably move keyboard focus. The app active on the Space you left stays active if it has no window on the new one (Finder after a click on the desktop is the usual case): your last window is in front, but typing goes nowhere. If that app *does* have a window on the new Space, macOS focuses it, which looks exactly like a choice.
-- **F20.** `activeSpaceDidChangeNotification` is posted after the switch animation. The switch itself fires activation, deactivation and focus-change notifications, so it generates "use" of the windows it lands on.
-- **F21.** Choosing a window from the Dock, a notification or Mission Control activates its app (`didActivateApplicationNotification`). macOS carrying the active app over to a window on the new Space does not.
-- **F22.** The active Space comes from the private `SLSGetActiveSpace(SLSMainConnectionID())` (older name: `CGS…`). Private symbols disappear between macOS releases.
+- **F17.** Activating an app brings all its windows forward. *(observed)* One window alone needs the private `_SLPSSetFrontProcessWithOptions` with `kCPSUserGenerated` (0x200), then two synthesized "make key window" event records via `SLPSPostEventRecordTo`, then `AXRaise`; this sequence works. *(observed)* Without the event records, key focus can stay on another window of the same app, and `AXRaise` must come last because SetFrontProcess orders the app but not the window among the app's own. *(believed: the sequence AltTab uses, not tested with steps left out)*
+- **F18.** A panel that accepts mouse events can take focus. `.nonactivatingPanel` with `ignoresMouseEvents` cannot. *(believed)*
+- **F19.** Switching Spaces does not reliably move keyboard focus. The app active on the Space you left stays active if it has no window on the new one (Finder after a click on the desktop is the usual case): your last window is in front, but typing goes nowhere. If that app *does* have a window on the new Space, macOS focuses it, which looks exactly like a choice. *(observed)*
+- **F20.** `activeSpaceDidChangeNotification` is posted after the switch animation. The switch itself fires activation, deactivation and focus-change notifications, so it generates "use" of the windows it lands on. *(observed)*
+- **F21.** Choosing a window from the Dock, a notification or Mission Control activates its app (`didActivateApplicationNotification`). macOS carrying the active app over to a window on the new Space does not. *(observed)*
+- **F22.** The active Space comes from the private `SLSGetActiveSpace(SLSMainConnectionID())` (older name: `CGS…`). *(observed)* Private symbols can disappear between macOS releases. *(believed)*
 
 ### Permission, signing, launchd
 
-- **F23.** The Accessibility permission belongs to the *responsible* process. Started by launchd, that is the binary itself. Started from a shell, it is the terminal app, whatever binary runs.
-- **F24.** An unbundled binary's permission is keyed to its **path** and its code signature's designated requirement. Same path, same certificate: the permission survives rebuilds. Another path, or an ad-hoc signature (which changes with every build): it must be granted again.
-- **F25.** If the binary has a reverse-DNS signing identifier, or an `Info.plist` (embedded with `-sectcreate __TEXT __info_plist`, or simply next to the binary), tccd files the permission under a **bundle ID**, then fails to find an app with that ID (`kLSApplicationNotFoundErr`) and denies. The entry shows in System Settings with a folder icon, named after the identifier's last component; turning it on does nothing, and `tccutil reset` cannot remove it.
-- **F26.** An untrusted self-signed code-signing certificate works for `codesign` and gives a stable designated requirement (`identifier "scope" and certificate leaf = H"…"`). `security find-identity -v` hides untrusted certificates; without `-v` it lists them.
-- **F27.** Overwriting a signed binary in place while it runs gets the process killed. Replacing it by rename does not.
-- **F28.** `launchctl bootstrap` straight after `bootout` of the same label fails transiently with an I/O error.
-- **F29.** launchd agents do not inherit the shell's environment, and `$TMPDIR` can differ between them. `confstr(_CS_DARWIN_USER_TEMP_DIR)` is the same for both.
-- **F30.** `log stream` shows `notice` and above by default; `info` and `debug` messages are hidden.
+- **F23.** The Accessibility permission belongs to the *responsible* process. Started by launchd, that is the binary itself. Started from a shell, it is the terminal app, whatever binary runs. *(observed)*
+- **F24.** An unbundled binary's permission is keyed to its **path** and its code signature's designated requirement. Same path, same certificate: the permission survives rebuilds. Another path, or an ad-hoc signature (which changes with every build): it must be granted again. *(observed)*
+- **F25.** If the binary has a reverse-DNS signing identifier, or an `Info.plist` (embedded with `-sectcreate __TEXT __info_plist`, or simply next to the binary), tccd files the permission under a **bundle ID**, then fails to find an app with that ID (`kLSApplicationNotFoundErr`) and denies. The entry shows in System Settings with a folder icon, named after the identifier's last component; turning it on does nothing, and `tccutil reset` cannot remove it. *(observed)*
+- **F26.** An untrusted self-signed code-signing certificate works for `codesign` and gives a stable designated requirement (`identifier "scope" and certificate leaf = H"…"`). `security find-identity -v` hides untrusted certificates; without `-v` it lists them. *(observed)*
+- **F27.** Overwriting a signed binary in place while it runs is widely reported to get the process killed, at launch or when it next loads code from the changed file, because the kernel caches the old signature. Replacing the file by rename gives the new binary a new inode and cannot hit this. *(believed: a small test binary overwritten in place on macOS 26 kept running, and the next launch worked)*
+- **F28.** `launchctl bootstrap` straight after `bootout` of the same label can fail transiently with an I/O error. *(believed)*
+- **F29.** launchd agents do not inherit the shell's environment, and `$TMPDIR` can differ between them. *(documented)* `confstr(_CS_DARWIN_USER_TEMP_DIR)` gives the same directory to both. *(observed)*
+- **F30.** `log stream` shows `notice` and above by default; `info` and `debug` messages are hidden. *(documented)*
+
+## Non-goals and known gaps
+
+**Deliberately not listed**, because they are not on screen in the current Space **[F6]**: windows on other Spaces, minimized windows, windows of hidden apps (⌘H), and the tabs behind the front tab of a tab group **[F9]**. Use Mission Control, the Dock or the app's own tab shortcuts for those.
+
+**Deliberately not done:**
+
+- Window thumbnails: they need Screen Recording permission **[F6]**.
+- Cycling the windows of one app: macOS's own <kbd>⌘</kbd> <kbd>`</kbd> already does that, scoped to the current Space.
+- Rebinding <kbd>Tab</kbd> or <kbd>esc</kbd>, or theming the overlay: the keys are fixed and the look is in code.
+- Remembering use across restarts: stamps live in memory, so after a restart every window ranks by stacking order until it is used, and refocus stays out of the way until then.
+
+**Untested:**
+
+- **Several displays.** By default each display has its own Spaces, and the window list includes the visible Space of *every* display **[F6]**, so ⌘Tab lists windows from all displays at once. The active Space **[F22]** is the focused display's only, so tab-group matching and refocus consider only that display's Space, and the overlay opens on the display of the first window in the list. None of this has been tried with a second display, or with "Displays have separate Spaces" turned off.
+- **Stage Manager.** Windows it has set aside may or may not count as on screen.
+- **Several users logged in at once** (fast user switching): each gets their own agent and socket, which should be enough, but has not been tried.
+- **The `brew services` handoff**: there is no Homebrew formula yet.
 
 ## Architecture
 
@@ -369,7 +393,7 @@ Unified log, subsystem `io.github.np25071984.scope`. Lifecycle and warnings alwa
 
 - `swift build -c release`, executable product `scope`, macOS 13+, links AppKit and ApplicationServices.
 - Sign: `codesign --force --options runtime --identifier scope --sign <identity>`. The identifier must be plain and there must be no `Info.plist` **[F25]**. The identity is `$SCOPE_SIGN_IDENTITY`, else the first *Developer ID Application*, *Apple Development* or *Scope Dev* in `security find-identity -p codesigning` (not `-v` **[F26]**), else ad hoc with a warning that the permission will not survive a rebuild **[F24]**.
-- Install: copy to `<prefix>/bin/scope.new`, `mv -f` over `<prefix>/bin/scope` **[F27]**, run `scope restart`. Default prefix `~/.local`.
+- Install: copy to `<prefix>/bin/scope.new`, `mv -f` over `<prefix>/bin/scope` (never overwrite in place **[F27]**), run `scope restart`. Default prefix `~/.local`.
 - Uninstall: `scope stop`, `bootout`, remove the plist and the binary; keep `scope.conf`.
 
 ## Constants
