@@ -32,8 +32,8 @@ final class Recency {
                 self.thread.async { handle(self, pid) }
             })
         }
-        on(NSWorkspace.didActivateApplicationNotification) { $0.stampFocused(of: $1, why: "activated") }
-        on(NSWorkspace.didDeactivateApplicationNotification) { $0.stampFocused(of: $1, why: "deactivated") }
+        on(NSWorkspace.didActivateApplicationNotification) { $0.stampFocused(of: $1, why: .activated) }
+        on(NSWorkspace.didDeactivateApplicationNotification) { $0.stampFocused(of: $1, why: .deactivated) }
         on(NSWorkspace.didLaunchApplicationNotification) { $0.observe($1, attempt: 0) }
         on(NSWorkspace.didTerminateApplicationNotification) { $0.unobserve($1) }
 
@@ -43,7 +43,7 @@ final class Recency {
         let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
         thread.async { [self] in
             for pid in pids { observe(pid, attempt: 0) }
-            if let front { stampFocused(of: front, why: "startup") }
+            if let front { stampFocused(of: front, why: .startup) }
         }
     }
 
@@ -58,7 +58,7 @@ final class Recency {
             let me = Unmanaged<Recency>.fromOpaque(refcon).takeUnretainedValue()
             var pid: pid_t = 0
             guard AXUIElementGetPid(element, &pid) == .success else { return }
-            me.stampFocused(of: pid, why: "focus changed")
+            me.stampFocused(of: pid, why: .focusChanged)
         }
         guard AXObserverCreate(pid, callback, &observer) == .success, let observer else { return }
 
@@ -90,15 +90,20 @@ final class Recency {
         lock.unlock()
     }
 
-    private func stampFocused(of pid: pid_t, why: String) {
+    private func stampFocused(of pid: pid_t, why: StampTable.Source) {
         guard let window = AX.focusedWindow(of: pid), let id = AX.windowID(window) else { return }
+        // The answer can be stale: a window on the Space the app left [F36].
+        guard StampTable.counts(why, onScreen: WindowLister.isOnScreen(id)) else {
+            Log.trace("\(why.rawValue): window \(id) of pid \(pid) is off screen; not stamped")
+            return
+        }
         let now = ProcessInfo.processInfo.systemUptime
         let frame = AX.frame(window), space = SkyLight.activeSpace()
 
         lock.lock()
         table.record(id, at: now, pid: pid, frame: frame, space: space)
         lock.unlock()
-        Log.trace("\(why): stamped window \(id) of pid \(pid)")
+        Log.trace("\(why.rawValue): stamped window \(id) of pid \(pid)")
     }
 
     // MARK: Any thread

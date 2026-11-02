@@ -45,6 +45,24 @@ struct StampTable {
         }
     }
 
+    /// What reported the window as focused.
+    enum Source: String {
+        case activated
+        case deactivated
+        case focusChanged = "focus changed"
+        case startup
+    }
+
+    /// Whether a report from `source` is a use of the window. An app just
+    /// activated can still name the window it had focused on the Space it
+    /// left, which is off screen, and stamping it would rank that window above
+    /// the one really used last there. A deactivation counts off screen too:
+    /// it fires as the Space you leave slides away, and names the window you
+    /// were in.
+    static func counts(_ source: Source, onScreen: @autoclosure () -> Bool) -> Bool {
+        source == .deactivated || onScreen()
+    }
+
     private(set) var stamps: [CGWindowID: Stamp] = [:]
 
     /// The window was used at `now`.
