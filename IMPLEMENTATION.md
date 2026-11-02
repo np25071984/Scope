@@ -77,6 +77,7 @@ Re-check the *believed* ones before relying on them, and all of them after a maj
 - **F20.** `activeSpaceDidChangeNotification` is posted after the switch animation. The switch itself fires activation, deactivation and focus-change notifications, so it generates "use" of the windows it lands on. *(observed)*
 - **F21.** Choosing a window from the Dock, a notification or Mission Control activates its app (`didActivateApplicationNotification`). macOS carrying the active app over to a window on the new Space does not. *(observed)*
 - **F22.** The active Space comes from the private `SLSGetActiveSpace(SLSMainConnectionID())` (older name: `CGS…`). *(observed)* Private symbols can disappear between macOS releases. *(believed)*
+- **F36.** An app activated on arrival at a Space, or by focusing one of its windows there, can for a moment answer `kAXFocusedWindowAttribute` with the window it had focused on the Space it left, which is off screen; its focus-changed notification follows with the right one. *(observed)*
 
 ### Permission, signing, launchd
 
@@ -218,6 +219,8 @@ A table `window id → Stamp { at, previous, pid, frame, space }`, `at` in `syst
 - `didActivateApplicationNotification`;
 - `didDeactivateApplicationNotification`. A tab switched to by keyboard may announce nothing, but the app still names it as focused on the way out, and every Space switch deactivates something **[F9, F20]**.
 - the frontmost app once at start.
+
+A stamp from any source but deactivation is dropped if its window is not on screen (`CGWindowListCopyWindowInfo(.optionIncludingWindow)`, `kCGWindowIsOnscreen`): a just-activated app can name its window on the Space it left **[F36]**. Which sources this applies to is **specified by** `Tests/scopeTests/StampTableTests.swift`.
 
 **The table and the ranking** are `StampTable`, a value with no Accessibility, lock or clock: recording a use, the use from before a burst of stamps, looking before a cutoff, the size limit, removing an app, most-recently-used order with never-used windows last in stacking order, and tab groups ranked by their newest tab **[F9, F12]**. **Specified by** `Tests/scopeTests/StampTableTests.swift`. `Recency` holds it under a lock and ranks with the active Space **[F22]**.
 

@@ -97,6 +97,14 @@ final class WindowLister {
         let z: Int
     }
 
+    /// Whether the window is ordered in on a Space that is showing [F6].
+    static func isOnScreen(_ id: CGWindowID) -> Bool {
+        guard let info = CGWindowListCopyWindowInfo(.optionIncludingWindow, id) as? [[String: Any]],
+              let entry = info.first
+        else { return false }
+        return entry[kCGWindowIsOnscreen as String] as? Bool ?? false
+    }
+
     private func onScreen() -> [OnScreen] {
         let own = getpid()
         guard let info = CGWindowListCopyWindowInfo(

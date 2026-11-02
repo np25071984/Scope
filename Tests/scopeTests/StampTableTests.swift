@@ -186,3 +186,24 @@ struct TabGroupTests {
         #expect(ids(table.rank([up, other], space: nil)) == [2, 1])
     }
 }
+
+@Suite("What counts as use")
+struct SourceTests {
+    @Test("an activation naming an off-screen window is not a use: the app can still name its window on the Space it left")
+    func staleActivation() {
+        #expect(!StampTable.counts(.activated, onScreen: false))
+        #expect(StampTable.counts(.activated, onScreen: true))
+    }
+
+    @Test("a deactivation counts off screen: it fires as the Space you leave slides away, naming the window you were in")
+    func deactivationOffScreen() {
+        #expect(StampTable.counts(.deactivated, onScreen: false))
+    }
+
+    @Test("a focus change or the startup stamp counts only on screen")
+    func othersOnScreen() {
+        #expect(!StampTable.counts(.focusChanged, onScreen: false))
+        #expect(!StampTable.counts(.startup, onScreen: false))
+        #expect(StampTable.counts(.focusChanged, onScreen: true))
+    }
+}
