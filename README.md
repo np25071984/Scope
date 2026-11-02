@@ -171,6 +171,10 @@ The decision logic is covered by tests: `swift test`.
 
 ## Changelog
 
+### 2.3.1 — 2026-11-02
+
+Switching back to a Space no longer focuses another app's window there when that app was the one you were using on the Space you left. Upgrade with `brew upgrade scope` and `brew services restart scope`, or run `install.sh` again; the Accessibility permission is kept.
+
 ### 2.3.0 — 2026-10-31
 
 scope can be installed with Homebrew: `brew tap np25071984/scope https://github.com/np25071984/Scope`, `brew trust np25071984/scope`, `brew install scope`, `brew services start scope`. The formula installs the signed release, and its service runs a copy at a path that stays the same across versions, so `brew upgrade` keeps the Accessibility permission. `scope start`, `stop` and `restart` hand over to `brew services` when Homebrew installed scope, and `scope status` recognises Homebrew 7's service label, `sh.brew.scope`. When scope needs the permission, it names the file to allow: the copy the service runs.
