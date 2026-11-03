@@ -61,7 +61,7 @@ scope is a tiny open-source tool: one binary under 1 MB that does two things, a 
 
 It may not be what you want:
 
-- **You want a UI**, with window thumbnails or windows from every Space: use [AltTab](https://alt-tab.app/). It is free and open source, with optional paid features.
+- **You want a UI**, with window thumbnails or windows from every Space: use [AltTab](https://alt-tab.app/). It is free and open source, with optional paid features, and it can also limit its list to the current Space. What scope adds is refocus: after a Space switch you can type straight into the window you last used there. It never asks for Screen Recording, which AltTab needs for thumbnails.
 - **You would rather pay** for a commercial switcher that comes with vendor support: look at [Witch](https://manytricks.com/witch/) or [Contexts](https://contexts.co/).
 - **You only switch now and then:** macOS already has Mission Control (three-finger swipe up, or <kbd>⌃</kbd> <kbd>↑</kbd>) and <kbd>⌘</kbd> <kbd>`</kbd> for the windows of the frontmost app.
 
