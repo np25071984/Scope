@@ -2,7 +2,7 @@
 
 Keyboard-first window switching on macOS, scoped to the current Space, with keyboard focus that follows you between Spaces. Its Space shortcuts switch instantly, or with a slide as long as you like.
 
-## The problem
+## What macOS gets wrong
 
 macOS <kbd>⌘</kbd> <kbd>Tab</kbd> switches *applications* across *all* Spaces. If you organise your work into Spaces, that defeats the purpose — you reach for the other window in front of you and get yanked into a different Space instead.
 

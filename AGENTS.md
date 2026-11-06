@@ -19,7 +19,7 @@ Each fact lives in one place. Do not repeat it in another. `CLAUDE.md` only impo
 | What macOS does, and how the code is wired to it | `IMPLEMENTATION.md` |
 | How to use scope | `README.md` |
 | What changed in a release | `CHANGELOG.md` |
-| The project page, np25071984.github.io/Scope | `docs/index.html`: a short pitch that links to `README.md` for details. Its "The problem" is the README's, copied: change both together, and the page when a headline feature changes |
+| The project page, np25071984.github.io/Scope | `docs/index.html`: a short pitch that links to `README.md` for details. Its "What macOS gets wrong" is the README's, copied: change both together, and the page when a headline feature changes |
 
 ## Rules
 
