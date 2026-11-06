@@ -130,7 +130,7 @@ Re-check the *believed* ones before relying on them, and all of them after a maj
 **Untested:**
 
 - **Several displays.** By default each display has its own Spaces, and the window list includes the visible Space of *every* display **[F6]**, so ⌘Tab lists windows from all displays at once. The active Space **[F22]** is the focused display's only, so tab-group matching and refocus consider only that display's Space, and the overlay opens on the display of the first window in the list. None of this has been tried with a second display, or with "Displays have separate Spaces" turned off.
-- **Jumping to a Space** with a second display, and `spaces` slide lengths on a display other than a 120Hz built-in one, or before macOS 27, where `Swipe` posts the older event format, which carries no fling, so any length switches at once **[F48]**.
+- **Jumping to a Space** with a second display, and `spaces` slide lengths on a display other than a 120Hz built-in one, or before macOS 27, where `Swipe` posts the older event format, which carries no fling, so any length switches at once; `Slide.unsupported` adds a config warning saying so **[F48]**.
 - **A timed slide's last step** starts when scope hears it has arrived on the Space before the target. If macOS did not report that arrival, the switch would stop one Space short, with no error. Every run so far reported it; nothing waits for it with a timeout.
 - **Stage Manager.** Windows it has set aside may or may not count as on screen.
 - **Several users logged in at once** (fast user switching): each gets their own agent and socket, which should be enough, but has not been tried.

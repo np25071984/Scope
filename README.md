@@ -58,7 +58,7 @@ It leaves focus alone when you chose where to go: a window clicked in the Dock, 
 
 The "Switch to Desktop N" shortcuts, <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd> by default, take you to that Space, and with `refocus` on, to the window you last used there. `spaces` sets how the switch looks: macOS's own slide, a slide of the length you choose, or none at all with `spaces = 0`. Pressed while a swipe is still sliding, which macOS ignores, the shortcut for the Space you are leaving cancels the swipe, and any other goes straight on to its Space.
 
-scope uses the shortcuts that are on in System Settings → Keyboard → Keyboard Shortcuts → Mission Control, with whatever keys they are set to; run `scope reload` after changing them. scope's own slides work the way [InstantSpaceSwitcher](https://github.com/jurplel/InstantSpaceSwitcher)'s do, with a synthetic trackpad swipe. A slide of a set length needs macOS 27 or later; on earlier versions any length switches at once.
+scope uses the shortcuts that are on in System Settings → Keyboard → Keyboard Shortcuts → Mission Control, with whatever keys they are set to; run `scope reload` after changing them. scope's own slides work the way [InstantSpaceSwitcher](https://github.com/jurplel/InstantSpaceSwitcher)'s do, with a synthetic trackpad swipe. A slide of a set length needs macOS 27 or later; on earlier versions any length switches at once, and `scope status` and `scope reload` say so.
 
 ## Is scope for you?
 
