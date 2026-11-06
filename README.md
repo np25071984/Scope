@@ -50,7 +50,7 @@ To cycle windows of the current app only, use the native <kbd>⌘</kbd> <kbd>`</
 
 When you arrive on a Space, scope makes sure the keyboard goes to the window you last used there. You can type straight away, with no click first.
 
-It steps in in three cases:
+It corrects three cases:
 
 - **Nothing on the new Space has focus.** macOS keeps the previous Space's app active when it has no window here — Finder after a click on the desktop is the usual case — so your window is in front but not focused.
 - **macOS focused a window you did not pick.** When the app you just left also has a window on the new Space, macOS hands focus to that window instead of the one you were working in.
