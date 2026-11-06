@@ -1,6 +1,6 @@
 # Scope
 
-Keyboard-first window switching on macOS, scoped to the current Space, and keyboard focus that follows you when you change Spaces.
+Keyboard-first window switching on macOS, scoped to the current Space, with keyboard focus that follows you between Spaces and Space shortcuts that work mid-swipe.
 
 ## The problem
 
