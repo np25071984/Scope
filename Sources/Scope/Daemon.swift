@@ -100,7 +100,7 @@ final class Daemon {
         switcher.configure(modifier: config.modifier.flags, mouse: config.mouse, spaceKeys: spaceKeys)
         if config.spaces { Log.trace("space shortcuts: \(spaceKeys.map { "\($0.number)" }.joined(separator: " "))") }
         switcher.refocusEnabled = config.refocus
-        switcher.animateSpaces = config.animate
+        switcher.slide = config.slide
     }
 
     private func handleSignals() {

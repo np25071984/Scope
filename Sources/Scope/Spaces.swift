@@ -82,7 +82,7 @@ enum SpaceJump {
         /// A slide is running away from the Space asked for: one swipe back cancels it.
         case cancel(SwipeDirection)
         /// A slide is running and macOS ignores the key until it lands, so
-        /// synthetic swipes take over from it, whatever `animate` says: `steps`
+        /// instant synthetic swipes take over from it, whatever `slide` says: `steps`
         /// more toward `space`, none if the slide is already going there.
         case redirect(SwipeDirection, steps: Int, to: UInt64, window: CGWindowID?)
         /// A slide is running and which way is unknown: decide once it lands.
@@ -153,10 +153,44 @@ enum SpaceJump {
         return .swipe(direction, steps: distance, to: target, window: window)
     }
 
+    /// The Space a swipe toward `target` going `direction` passes just
+    /// before it: where a timed slide's last step starts [F48].
+    static func before(_ target: UInt64, going direction: SwipeDirection, in spaces: [UInt64]) -> UInt64? {
+        guard let i = spaces.firstIndex(of: target) else { return nil }
+        let j = direction == .right ? i - 1 : i + 1
+        return spaces.indices.contains(j) ? spaces[j] : nil
+    }
+
     /// The Spaces a multi-step swipe passes on the way, which macOS may
     /// report arriving at before the last.
     static func between(_ a: UInt64, _ b: UInt64, in spaces: [UInt64]) -> Set<UInt64> {
         guard let i = spaces.firstIndex(of: a), let j = spaces.firstIndex(of: b), abs(i - j) > 1 else { return [] }
         return Set(spaces[(min(i, j) + 1)..<max(i, j)])
+    }
+}
+
+/// The fling velocity that makes a synthetic swipe slide for a given time.
+enum SlideSpeed {
+    /// Slide length in seconds against fling velocity, measured on macOS 27
+    /// on a 120Hz built-in display [F48]. Durations rise steadily as the
+    /// velocity falls, steeply between 56 and 54. Another refresh rate may
+    /// slide faster or slower for the same velocity.
+    static let table: [(seconds: Double, velocity: Double)] = [
+        (0.052, 100), (0.060, 80), (0.070, 75), (0.083, 70), (0.096, 66), (0.112, 60), (0.133, 58),
+        (0.176, 56), (0.193, 55.75), (0.217, 55.5), (0.244, 55.25), (0.323, 55), (0.393, 54.75),
+        (0.446, 54.5), (0.474, 54.25), (0.504, 54), (0.614, 52), (0.677, 50), (0.721, 48),
+        (0.747, 46), (0.784, 44), (0.807, 40), (0.874, 30), (0.931, 15),
+    ]
+
+    /// The velocity for `seconds`, interpolated in the table and held at its
+    /// ends; 0, or anything shorter than the table, is instant.
+    static func velocity(seconds: Double) -> Double {
+        guard let first = table.first, let last = table.last else { return Swipe.instantFling }
+        if seconds < first.seconds { return Swipe.instantFling }
+        if seconds >= last.seconds { return last.velocity }
+        let i = table.firstIndex { $0.seconds > seconds }!
+        let (a, b) = (table[i - 1], table[i])
+        let t = (seconds - a.seconds) / (b.seconds - a.seconds)
+        return a.velocity + t * (b.velocity - a.velocity)
     }
 }

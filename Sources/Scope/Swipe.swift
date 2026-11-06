@@ -66,20 +66,22 @@ enum Swipe {
     /// The smallest progress the Dock's 16.16 fixed point can carry: nothing
     /// left to animate. Full progress switches too, but flashes the Space left.
     private static let progress = 0.000016
-    /// The fling that commits the switch on macOS 27: near the 16.16 maximum.
-    private static let flingVelocity = 9999.0
+    /// The fling that commits the switch on macOS 27: near the 16.16
+    /// maximum, which leaves no slide. A slower one slides [F48].
+    static let instantFling = 9999.0
     /// Before macOS 27 the velocity of each event decides the speed; this one
     /// skips the slide, and a multi-step switch multiplies it.
     private static let legacyVelocity = 2000.0
     /// macOS 27 ignores the plain event and needs the raw IOHID payload added.
     private static let needsPayload = ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27
 
-    /// Posts `steps` swipes. Returns false if an event could not be made.
-    static func post(_ direction: SwipeDirection, steps: Int) -> Bool {
+    /// Posts `steps` swipes, each with `fling` on macOS 27. Returns false if
+    /// an event could not be made.
+    static func post(_ direction: SwipeDirection, steps: Int, fling: Double = instantFling) -> Bool {
         for _ in 0..<steps {
             // Three phases: with only two, Mission Control stops working.
             for phase in [Phase.began, .changed, .ended] {
-                guard needsPayload ? postModern(phase, direction)
+                guard needsPayload ? postModern(phase, direction, fling: fling)
                                    : postLegacy(phase, direction, velocity: legacyVelocity * Double(steps))
                 else { return false }
             }
@@ -119,7 +121,7 @@ enum Swipe {
         return true
     }
 
-    private static func postModern(_ phase: Phase, _ direction: SwipeDirection) -> Bool {
+    private static func postModern(_ phase: Phase, _ direction: SwipeDirection, fling: Double) -> Bool {
         let sign = sign(direction)
         guard let event = CGEvent(source: nil) else { return false }
         event.setIntegerValueField(eventTypeField, value: dockControlEvent)
@@ -133,7 +135,7 @@ enum Swipe {
         event.setDoubleValueField(timestampAlias, value: Double(mach_absolute_time()))
         event.setDoubleValueField(swipePositionX, value: 0.1)
         // Only the ended event carries the fling.
-        if phase == .ended { event.setDoubleValueField(swipeVelocityX, value: sign * flingVelocity) }
+        if phase == .ended { event.setDoubleValueField(swipeVelocityX, value: sign * fling) }
 
         guard let augmented = withPayload(event),
               let companion = CGEvent(source: nil)

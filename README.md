@@ -53,7 +53,7 @@ It leaves focus alone when you chose where to go: a window clicked in the Dock, 
 
 ### Jump to a Space
 
-The "Switch to Desktop N" shortcuts, <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd> by default, take you to that Space and focus the window you last used there. macOS's own switch picks an app for the Space when it gets there, often not the one you were using. With `animate = false` the switch happens at once, with no slide. Pressed while a swipe is still sliding, the shortcut for the Space you are leaving cancels the swipe, and any other goes straight on to its Space.
+The "Switch to Desktop N" shortcuts, <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd> by default, take you to that Space and focus the window you last used there. macOS's own switch picks an app for the Space when it gets there, often not the one you were using. `slide` sets how the switch looks: macOS's own slide, or a slide of the length you choose, or none at all with `slide = 0`. Pressed while a swipe is still sliding, the shortcut for the Space you are leaving cancels the swipe, and any other goes straight on to its Space.
 
 scope uses the shortcuts that are on in System Settings → Keyboard → Keyboard Shortcuts → Mission Control, with whatever keys they are set to; run `scope reload` after changing them. Set `spaces = false` to leave them to macOS. The instant switch works the way [InstantSpaceSwitcher](https://github.com/jurplel/InstantSpaceSwitcher) does, with a synthetic trackpad swipe.
 
@@ -159,7 +159,8 @@ mouse    = true    # hover selects a row, click switches, click elsewhere dismis
 refocus  = true    # after a Space switch, focus the window last used there when macOS
                    # leaves nothing focused, or only carried the previous app over
 spaces   = true    # the Switch to Desktop N shortcuts switch at once, to the window last used there
-animate  = true    # those switches slide as macOS's do; false switches at once
+slide    = macos   # how they look: macos, or the slide's length in seconds, 0 for none
+                   # (about 0.05 to 0.9; timed on a 120Hz display, others may differ)
 trace    = false   # log every switcher decision
 ```
 

@@ -160,6 +160,27 @@ struct SpaceJumpTests {
         #expect(SpaceJump.direction(of: -3.6, natural: true) == .right)
     }
 
+    @Test("slide seconds map to the measured fling velocity, interpolated, held at the long end, instant below the short end")
+    func slideSpeed() {
+        #expect(SlideSpeed.velocity(seconds: 0) == Swipe.instantFling)
+        #expect(SlideSpeed.velocity(seconds: 0.323) == 55)
+        #expect(abs(SlideSpeed.velocity(seconds: 0.2835) - 55.125) < 0.001)   // halfway between 0.244 and 0.323
+        #expect(SlideSpeed.velocity(seconds: 1.0) == 15)
+    }
+
+    @Test("a longer slide never needs a faster fling: the table runs one way")
+    func slideTableMonotonic() {
+        let t = SlideSpeed.table
+        #expect(zip(t, t.dropFirst()).allSatisfy { $0.seconds < $1.seconds && $0.velocity > $1.velocity })
+    }
+
+    @Test("a timed slide's last step starts from the Space just before the target, coming from either side")
+    func lastStepStart() {
+        #expect(SpaceJump.before(5, going: .right, in: spaces) == 4)
+        #expect(SpaceJump.before(1, going: .left, in: spaces) == 3)
+        #expect(SpaceJump.before(1, going: .right, in: spaces) == nil)
+    }
+
     @Test("a multi-step swipe passes the Spaces between; one step passes none")
     func between() {
         #expect(SpaceJump.between(1, 4, in: spaces) == [3, 9])

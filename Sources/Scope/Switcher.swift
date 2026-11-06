@@ -19,15 +19,17 @@ final class Switcher {
     /// A swipe scope posted, until it lands: where to, the window to focus
     /// there, and the Spaces it passes on the way.
     private var arriving: (space: UInt64, window: CGWindowID?, passing: Set<UInt64>)?
+    /// A timed slide's last step, posted on arriving at `from` [F48].
+    private var lastStep: (from: UInt64, direction: SwipeDirection, fling: Double)?
     /// Which way the slide now running goes, when scope knows: a swipe was
     /// seen ending, or scope started it. Cleared once it lands.
-    private var slide: SwipeDirection?
+    private var slideDirection: SwipeDirection?
     private var refocusState = Refocus()
     private var icons: [pid_t: NSImage] = [:]
 
     var refocusEnabled = true
-    /// ⌃N slides as macOS's own switch does; false switches at once.
-    var animateSpaces = true
+    /// How ⌃N switches look: macOS's slide, or scope's swipe of a set length.
+    var slide = Slide.macos
 
     func start() -> Bool {
         WindowLister.configureTimeout()
@@ -89,7 +91,7 @@ final class Switcher {
         case .pick(let row): select(row); commit()
         case .cancel: cancel()
         case .space(let number, let code, let flags): jump(to: number, code: code, flags: flags)
-        case .swiped(let value): slide = Swipe.direction(of: value)
+        case .swiped(let value): slideDirection = Swipe.direction(of: value)
         }
     }
 
@@ -229,11 +231,11 @@ final class Switcher {
         let onScreenSpaces = SkyLight.spaces(of: ids)
         let onScreen = ids.map { onScreenSpaces[$0] ?? [] }
         let settled = giveUp || SpaceJump.settled(current: current, spaces: spaces, onScreen: onScreen)
-        if settled { slide = nil }
+        if settled { slideDirection = nil }
         // The direction scope saw the slide start in, else what is on screen,
         // which can show both neighbours [F47].
         let sliding: SwipeDirection?? =
-            settled ? nil : .some(slide ?? SpaceJump.heading(current: current, spaces: spaces, onScreen: onScreen))
+            settled ? nil : .some(slideDirection ?? SpaceJump.heading(current: current, spaces: spaces, onScreen: onScreen))
         let uses = recency.lastUses()
         let windowSpaces = SkyLight.spaces(of: Array(uses.keys))
         let candidates = uses.map { id, use in
@@ -261,7 +263,7 @@ final class Switcher {
             let current = SkyLight.activeSpace() ?? space
             let passing = SpaceJump.between(current, space, in: SkyLight.displaySpaces(withSpace: current))
             arriving = (space, window, passing.union([current]))
-            slide = direction
+            slideDirection = direction
             if steps > 0, !Swipe.post(direction, steps: steps) {
                 arriving = nil
                 replay()
@@ -269,15 +271,27 @@ final class Switcher {
         case .swipe(let direction, let steps, let space, let window):
             let current = SkyLight.activeSpace() ?? space
             arriving = (space, window, SpaceJump.between(current, space, in: SkyLight.displaySpaces(withSpace: current)))
-            slide = direction
-            if animateSpaces {
+            slideDirection = direction
+            guard case .seconds(let seconds) = self.slide else {
                 // macOS's own switch, with its slide; scope still focuses on arrival.
                 Log.trace("space \(number): macOS slides there, then window \(window.map(String.init) ?? "none")")
                 KeyTap.replay(code: code, flags: flags)
                 return
             }
-            Log.trace("space \(number): \(steps) swipe\(steps == 1 ? "" : "s") \(direction), then window \(window.map(String.init) ?? "none")")
-            if !Swipe.post(direction, steps: steps) {
+            Log.trace("space \(number): \(steps) swipe\(steps == 1 ? "" : "s") \(direction), the last of \(seconds)s, then window \(window.map(String.init) ?? "none")")
+            let fling = SlideSpeed.velocity(seconds: seconds)
+            // Several timed swipes at once take about a second whatever their
+            // speed, so the steps before the last are instant, and the last
+            // waits until the Space before the target is current [F48].
+            var ok = true
+            if steps > 1, let from = SpaceJump.before(space, going: direction, in: SkyLight.displaySpaces(withSpace: current)) {
+                lastStep = (from, direction, fling)
+                ok = Swipe.post(direction, steps: steps - 1)
+            } else {
+                ok = Swipe.post(direction, steps: steps, fling: fling)
+            }
+            if !ok {
+                lastStep = nil
                 arriving = nil
                 replay()
             }
@@ -288,8 +302,13 @@ final class Switcher {
     /// the window it planned, and tell the caller to leave refocus out of it;
     /// a Space passed on the way is left alone too. Anything else ends the jump.
     private func landed(on space: UInt64?) -> Bool {
-        slide = nil
+        slideDirection = nil
+        defer { if arriving == nil { lastStep = nil } }
         guard let jump = arriving, let space else { return false }
+        if let step = lastStep, step.from == space {
+            lastStep = nil
+            if !Swipe.post(step.direction, steps: 1, fling: step.fling) { arriving = nil }
+        }
         if jump.passing.contains(space) { return true }
         arriving = nil
         guard space == jump.space else { return false }

@@ -5,7 +5,7 @@
 //   mouse    = true
 //   refocus  = true
 //   spaces   = true
-//   animate  = true
+//   slide    = macos   # macos | seconds, 0 for none
 //   trace    = false
 //
 // Read at startup and on `scope reload` (SIGHUP). Scope never writes it. A
@@ -27,12 +27,31 @@ enum Modifier: String, CaseIterable {
     }
 }
 
+/// How a ⌃N switch looks.
+enum Slide: Equatable {
+    /// macOS's own slide.
+    case macos
+    /// scope's swipe, taking this long; 0 is instant.
+    case seconds(Double)
+
+    /// The longest slide asked for that scope accepts; `SlideSpeed` cannot
+    /// make one much longer.
+    static let maxSeconds = 1.0
+
+    var text: String {
+        switch self {
+        case .macos: return "macos"
+        case .seconds(let s): return s == 0 ? "0" : String(s)
+        }
+    }
+}
+
 struct Config: Equatable {
     var modifier = Modifier.cmd
     var mouse = true
     var refocus = true
     var spaces = true
-    var animate = true
+    var slide = Slide.macos
     var trace = false
 
     /// `$XDG_CONFIG_HOME/scope/scope.conf`, else `~/.config/scope/scope.conf`.
@@ -90,7 +109,14 @@ struct Config: Equatable {
             case "mouse": if let b = bool() { config.mouse = b }
             case "refocus": if let b = bool() { config.refocus = b }
             case "spaces": if let b = bool() { config.spaces = b }
-            case "animate": if let b = bool() { config.animate = b }
+            case "slide":
+                if value.lowercased() == "macos" {
+                    config.slide = .macos
+                } else if let s = Double(value), s >= 0, s <= Slide.maxSeconds {
+                    config.slide = .seconds(s)
+                } else {
+                    warnings.append("\(at): slide must be macos or seconds from 0 to \(Slide.maxSeconds), got `\(value)`")
+                }
             case "trace": if let b = bool() { config.trace = b }
             default: warnings.append("\(at): unknown setting `\(key)`")
             }
@@ -105,7 +131,7 @@ struct Config: Equatable {
             "mouse    = \(mouse)",
             "refocus  = \(refocus)",
             "spaces   = \(spaces)",
-            "animate  = \(animate)",
+            "slide    = \(slide.text)",
             "trace    = \(trace)",
         ]
     }
