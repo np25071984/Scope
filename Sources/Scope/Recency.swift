@@ -115,6 +115,13 @@ final class Recency {
         return table.lastUsed(id, before: cutoff)
     }
 
+    /// Every window seen used: its app, and when, by its latest stamp.
+    func lastUses() -> [CGWindowID: (pid: pid_t, at: TimeInterval)] {
+        lock.lock()
+        defer { lock.unlock() }
+        return table.stamps.mapValues { ($0.pid, $0.at) }
+    }
+
     /// `windows` most recently used first; see `StampTable.rank`.
     func rank(_ windows: [Window], before cutoff: TimeInterval = .infinity) -> [Window] {
         lock.lock()

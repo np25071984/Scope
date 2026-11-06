@@ -10,9 +10,11 @@ The closest native tool is Mission Control (three-finger swipe up, or <kbd>⌃</
 
 Switching Spaces has a second problem: the keyboard does not always come with you. Arrive on a Space and the window you were working in is in front, yet what you type goes nowhere, or into a window you did not pick, because macOS kept the previous Space's app active. You have to click the window first.
 
+The Space shortcuts, <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd>, have gaps of their own. While a three-finger swipe is still sliding, a swipe back cancels it, but the shortcuts do nothing: you wait for the slide to end and press again. The slide they start has a fixed length, too: no setting shortens it, and Reduce motion only swaps it for a fade.
+
 ## What this does
 
-scope does two things: a window switcher for the current Space, and focus that follows you when you change Spaces.
+scope does three things: a window switcher for the current Space, focus that follows you when you change Spaces, and Space shortcuts that still work while a swipe is sliding, with a slide as long as you choose.
 
 ### Window switcher
 
@@ -44,24 +46,27 @@ To cycle windows of the current app only, use the native <kbd>⌘</kbd> <kbd>`</
 
 When you arrive on a Space, scope makes sure the keyboard goes to the window you last used there. You can type straight away, with no click first.
 
-It steps in in two cases, a moment after the switch settles:
+It steps in in three cases:
 
 - **Nothing on the new Space has focus.** macOS keeps the previous Space's app active when it has no window here — Finder after a click on the desktop is the usual case — so your window is in front but not focused.
 - **macOS focused a window you did not pick.** When the app you just left also has a window on the new Space, macOS hands focus to that window instead of the one you were working in.
+- **macOS picked another app for the Space.** When the app last in front on a Space has no window there — a link that opened in a browser on another Space is the usual case — macOS chooses an app for the Space on your way back, and not the one you were using. scope corrects it as soon as it sees the pick, so the wrong app shows for a moment at most.
 
 It leaves focus alone when you chose where to go: a window clicked in the Dock, a notification, Mission Control, or scope's own switcher. It also leaves it alone on a Space where it has not yet seen you use any window, such as right after it starts, rather than guess. Set `refocus = false` to turn it off.
 
-### The service
+### Jump to a Space
 
-scope is a single binary run as a launchd service. It has no app bundle, Dock icon or menu bar: you control it with `scope start | stop | status | …` and configure it in a text file.
+The "Switch to Desktop N" shortcuts, <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd> by default, take you to that Space, and with `refocus` on, to the window you last used there. `spaces` sets how the switch looks: macOS's own slide, a slide of the length you choose, or none at all with `spaces = 0`. Pressed while a swipe is still sliding, which macOS ignores, the shortcut for the Space you are leaving cancels the swipe, and any other goes straight on to its Space.
+
+scope uses the shortcuts that are on in System Settings → Keyboard → Keyboard Shortcuts → Mission Control, with whatever keys they are set to; run `scope reload` after changing them. scope's own slides work the way [InstantSpaceSwitcher](https://github.com/jurplel/InstantSpaceSwitcher)'s do, with a synthetic trackpad swipe. A slide of a set length needs macOS 27 or later; on earlier versions any length switches at once.
 
 ## Is scope for you?
 
-scope is a tiny open-source tool: one binary under 1 MB that does two things, a window switcher for the current Space and focus that follows you across Spaces. There is no app and no UI beyond the switcher itself. It runs as a background service you control from the terminal, and you configure it in a text file. It installs with one command in Terminal, with no app to drag anywhere, no automatic updates and no paid support.
+scope is a small open-source tool, about 1 MB, for people who change windows and Spaces from the keyboard. It is intentionally built as a background service: there is no app, Dock icon or menu bar, and no UI beyond the switcher; you set it up in a text file and control it from the terminal. It installs with one command in Terminal, with no app to drag anywhere and no automatic updates.
 
 It may not be what you want:
 
-- **You want a UI**, with window thumbnails or windows from every Space: use [AltTab](https://alt-tab.app/). It is free and open source, with optional paid features, and it can also limit its list to the current Space. What scope adds is refocus: after a Space switch you can type straight into the window you last used there. It never asks for Screen Recording, which AltTab needs for thumbnails.
+- **You want a UI**, with window thumbnails or windows from every Space: use [AltTab](https://alt-tab.app/). It is free and open source, with optional paid features, and it can also limit its list to the current Space. What scope adds is refocus, so after a Space switch you can type straight into the window you last used there, and Space shortcuts that work mid-swipe. It never asks for Screen Recording, which AltTab needs for thumbnails.
 - **You would rather pay** for a commercial switcher that comes with vendor support: look at [Witch](https://manytricks.com/witch/) or [Contexts](https://contexts.co/).
 - **You only switch now and then:** macOS already has Mission Control (three-finger swipe up, or <kbd>⌃</kbd> <kbd>↑</kbd>) and <kbd>⌘</kbd> <kbd>`</kbd> for the windows of the frontmost app.
 
@@ -150,8 +155,12 @@ Installed with Homebrew, the service belongs to `brew services` (label `sh.brew.
 ```ini
 modifier = cmd     # cmd replaces the system switcher; alt (⌥Tab) runs alongside it; ctrl
 mouse    = true    # hover selects a row, click switches, click elsewhere dismisses
-refocus  = true    # after a Space switch, focus the window last used there when macOS
-                   # leaves nothing focused, or only carried the previous app over
+refocus  = true    # after any Space switch, put focus on the window you last used there,
+                   # unless you picked a window to go to (Dock, notification, Mission Control)
+spaces   = macos   # how the Switch to Desktop N shortcuts (⌃1…⌃9) slide:
+                   #   macos  macOS's own slide
+                   #   0.4    a slide of that many seconds (about 0.05 to 0.9, timed on
+                   #          macOS 27 with a 120Hz display); 0 for none
 trace    = false   # log every switcher decision
 ```
 
@@ -159,7 +168,7 @@ trace    = false   # log every switcher decision
 
 ## Diagnostics
 
-`scope logs` follows the service's log: start, permission, reloads and warnings. With `trace = true` it also shows each focus stamp, each list with its build time, apps that timed out, and every commit and refocus decision. Anything the service prints outside the log, such as a crash, goes to `~/Library/Logs/scope.log`.
+`scope logs` follows the service's log: start, permission, reloads and warnings. With `trace = true` it also shows each focus stamp, each list with its build time, apps that timed out, and every commit, refocus decision and Space jump. Anything the service prints outside the log, such as a crash, goes to `~/Library/Logs/scope.log`.
 
 When the list comes out in the wrong order, `scope list` shows it as the switcher would, with each window's last use, so a window that was never seen used stands out.
 

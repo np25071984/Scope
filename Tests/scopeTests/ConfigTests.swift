@@ -8,7 +8,7 @@ struct ConfigTests {
     @Test("an empty file means every default")
     func defaults() {
         let (config, warnings) = Config.parse("")
-        #expect(config == Config(modifier: .cmd, mouse: true, refocus: true, trace: false))
+        #expect(config == Config(modifier: .cmd, mouse: true, refocus: true, spaces: .macos, trace: false))
         #expect(warnings.isEmpty)
     }
 
@@ -18,9 +18,10 @@ struct ConfigTests {
             modifier = alt
             mouse = false
             refocus = no
+            spaces = 0.4
             trace = on
             """)
-        #expect(config == Config(modifier: .alt, mouse: false, refocus: false, trace: true))
+        #expect(config == Config(modifier: .alt, mouse: false, refocus: false, spaces: .seconds(0.4), trace: true))
         #expect(warnings.isEmpty)
     }
 
@@ -59,6 +60,18 @@ struct ConfigTests {
         #expect(warnings == ["f:1: modifier must be cmd, alt or ctrl, got `hyper`"])
     }
 
+    @Test("spaces: macos, or seconds from 0 to the most a swipe can take; anything else, true and false too, keeps macos and warns")
+    func spacesValues() {
+        #expect(Config.parse("spaces = MacOS").0.spaces == .macos)
+        #expect(Config.parse("spaces = 0").0.spaces == .seconds(0))
+        #expect(Config.parse("spaces = 0.25").0.spaces == .seconds(0.25))
+        for bad in ["slow", "-0.1", "1.5", "off", "false"] {
+            let (config, warnings) = Config.parse("spaces = \(bad)")
+            #expect(config.spaces == .macos)
+            #expect(warnings.count == 1)
+        }
+    }
+
     @Test("an unknown key is reported, not fatal")
     func unknownKey() {
         #expect(Config.parse("colour = red", name: "f").1 == ["f:1: unknown setting `colour`"])
@@ -78,6 +91,6 @@ struct ConfigTests {
 
     @Test("the effective settings print back as scope.conf lines")
     func lines() {
-        #expect(Config().lines == ["modifier = cmd", "mouse    = true", "refocus  = true", "trace    = false"])
+        #expect(Config().lines == ["modifier = cmd", "mouse    = true", "refocus  = true", "spaces   = macos", "trace    = false"])
     }
 }

@@ -48,6 +48,60 @@ enum SkyLight {
     private static let activeSpaceID = symbol(
         ["SLSGetActiveSpace", "CGSGetActiveSpace"], as: ActiveSpace.self)
 
+    private typealias CopyDisplaySpaces = @convention(c) (Int32) -> Unmanaged<CFArray>?
+    private typealias CopySpacesForWindows = @convention(c) (Int32, Int32, CFArray) -> Unmanaged<CFArray>?
+
+    private static let copyDisplaySpaces = symbol(
+        ["SLSCopyManagedDisplaySpaces", "CGSCopyManagedDisplaySpaces"], as: CopyDisplaySpaces.self)
+    private static let copySpacesForWindows = symbol(
+        ["SLSCopySpacesForWindows", "CGSCopySpacesForWindows"], as: CopySpacesForWindows.self)
+
+    /// The Space type of an ordinary desktop; full-screen apps have their own.
+    private static let desktopType = 0
+    /// Every Space a window belongs to: current, other and user Spaces.
+    private static let allSpaces: Int32 = 0x7
+
+    /// The desktops of the display showing `space`, in order, as "Desktop N"
+    /// counts them [F39]. Empty if the call is gone.
+    static func desktops(withSpace space: UInt64) -> [UInt64] {
+        guard let mainConnection, let copyDisplaySpaces,
+              let displays = copyDisplaySpaces(mainConnection())?.takeRetainedValue() as? [[String: Any]]
+        else { return [] }
+        for display in displays {
+            let spaces = display["Spaces"] as? [[String: Any]] ?? []
+            guard spaces.contains(where: { ($0["id64"] as? UInt64) == space }) else { continue }
+            return spaces.compactMap { s in
+                (s["type"] as? Int) == desktopType ? s["id64"] as? UInt64 : nil
+            }
+        }
+        return []
+    }
+
+    /// Every Space of the display showing `space`, full-screen ones too, in
+    /// Mission Control order [F39].
+    static func displaySpaces(withSpace space: UInt64) -> [UInt64] {
+        guard let mainConnection, let copyDisplaySpaces,
+              let displays = copyDisplaySpaces(mainConnection())?.takeRetainedValue() as? [[String: Any]]
+        else { return [] }
+        for display in displays {
+            let ids = (display["Spaces"] as? [[String: Any]] ?? []).compactMap { $0["id64"] as? UInt64 }
+            if ids.contains(space) { return ids }
+        }
+        return []
+    }
+
+    /// The Spaces each window is on now. A window that is gone is on none [F39].
+    static func spaces(of windows: [CGWindowID]) -> [CGWindowID: [UInt64]] {
+        guard let mainConnection, let copySpacesForWindows else { return [:] }
+        let connection = mainConnection()
+        var out: [CGWindowID: [UInt64]] = [:]
+        for id in windows {
+            let list = [NSNumber(value: id)] as CFArray
+            out[id] = copySpacesForWindows(connection, allSpaces, list)?.takeRetainedValue() as? [UInt64] ?? []
+        }
+        return out
+    }
+
     static var canFocusSingleWindow: Bool {
         setFrontProcess != nil && postEventRecord != nil && processForPID != nil
     }

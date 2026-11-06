@@ -69,6 +69,17 @@ enum AX {
     }
 }
 
+extension WindowLister {
+    /// The ids of the ordinary windows on screen now, on any Space showing.
+    static func onScreenIDs() -> [CGWindowID] {
+        let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]] ?? []
+        return info.compactMap { w in
+            (w[kCGWindowLayer as String] as? Int) == 0 ? (w[kCGWindowNumber as String] as? CGWindowID) : nil
+        }
+    }
+}
+
 final class WindowLister {
     // How long one app may take to answer before scope stops waiting for it.
     // Set globally, through the system-wide element, so it bounds every

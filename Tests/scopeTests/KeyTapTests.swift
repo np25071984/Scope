@@ -24,6 +24,42 @@ private func opened(mouse: Bool = true) -> KeyTap.State {
     return state
 }
 
+@Suite("Space shortcuts in the tap")
+struct SpaceKeyTapTests {
+    private let two = SpaceShortcut(code: 19, modifiers: .maskControl, number: 2)
+
+    @Test("a Space shortcut is swallowed and handed on with the key, to give back if scope does not jump")
+    func swallowsShortcut() {
+        var state = KeyTap.State()
+        state.spaceKeys = [two]
+        let out = state.handle(.keyDown(code: 19, flags: .maskControl))
+        #expect(out == .init(swallow: true, action: .space(number: 2, code: 19, flags: .maskControl)))
+        #expect(!state.open)
+    }
+
+    @Test("a Dock swipe's lift is reported with its fling, and never swallowed; other phases are only watched")
+    func swipeLift() {
+        var state = KeyTap.State()
+        #expect(state.handle(.dockSwipe(phase: 4, velocity: -3.6, progress: -0.2)) == .init(action: .swiped(-3.6)))
+        #expect(state.handle(.dockSwipe(phase: 4, velocity: 0, progress: 0.3)) == .init(action: .swiped(0.3)))
+        #expect(state.handle(.dockSwipe(phase: 2, velocity: 0, progress: 0.1)) == .init())
+        #expect(state.handle(.dockSwipe(phase: 4, velocity: 0, progress: 0)) == .init())
+    }
+
+    @Test("with the setting off there are no shortcuts, and ⌃N passes")
+    func offPasses() {
+        var state = KeyTap.State()
+        #expect(state.handle(.keyDown(code: 19, flags: .maskControl)) == .init())
+    }
+
+    @Test("while the switcher is open, a Space shortcut passes like any other key")
+    func openPasses() {
+        var state = opened()
+        state.spaceKeys = [two]
+        #expect(state.handle(.keyDown(code: 19, flags: .maskControl)) == .init())
+    }
+}
+
 @Suite("Opening")
 struct OpeningTests {
     @Test("modifier + Tab opens forward, swallowed, with a new session")
