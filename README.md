@@ -180,6 +180,14 @@ The decision logic is covered by tests: `swift test`.
 
 ## Changelog
 
+### 2.4.0 — 2026-11-06
+
+scope now handles the Switch to Desktop N shortcuts that are on in System Settings, <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd> by default. Pressed while a three-finger swipe is still sliding, which macOS ignores, they cancel the slide or go straight on to their Space. The new `spaces` setting sets how they slide: `macos`, the default, keeps macOS's own slide; a number sets the slide's length in seconds, and 0 switches at once. A set length needs macOS 27; on earlier versions any length switches at once. scope's own slides use a synthetic trackpad swipe, the way [InstantSpaceSwitcher](https://github.com/jurplel/InstantSpaceSwitcher) does.
+
+Switching back to a Space after a link opened in a browser on another Space now focuses the window you last used there: macOS picks another app for the Space on arrival, and scope took that pick for your choice. scope now corrects such a pick as soon as it sees it, so the wrong app shows for a moment at most. A quick switch to another Space and back no longer lands in the app you had just ⌘Tabbed away from.
+
+Upgrade with `brew upgrade scope` and `brew services restart scope`, or run `install.sh` again; the Accessibility permission is kept. <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd> now go through scope, with nothing to set up.
+
 ### 2.3.1 — 2026-11-02
 
 Switching back to a Space no longer focuses another app's window there when that app was the one you were using on the Space you left. Upgrade with `brew upgrade scope` and `brew services restart scope`, or run `install.sh` again; the Accessibility permission is kept.
