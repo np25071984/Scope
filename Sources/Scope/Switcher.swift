@@ -190,12 +190,35 @@ final class Switcher {
     // The decision is `Refocus`; this is its timer and its side effects.
 
     private func activated(_ pid: pid_t?) {
-        refocusState.activated(pid, at: ProcessInfo.processInfo.systemUptime)
+        let space = SkyLight.activeSpace()
+        Log.trace("refocus: activation of pid \(pid.map(String.init) ?? "?") on Space \(space.map(String.init) ?? "?")")
+        let now = ProcessInfo.processInfo.systemUptime
+        let pick = refocusState.activated(pid, at: now, on: space)
+        // macOS's pick is already in front; correct it now rather than after
+        // the settle, so it does not show for that long.
+        guard pick, refocusEnabled, !overlay.isVisible else { return }
+        let cutoff = now - Refocus.switchMargin
+        let here = recency.rank(lister.currentSpace(), before: cutoff)
+        apply(refocusState.decidePick(
+            here, pick: pid,
+            seenUsed: { [recency] in recency.lastUsed($0.id, before: cutoff) != nil }), here, on: "pick")
     }
 
     private func spaceChanged() {
         guard refocusEnabled else { return }
-        refocusState.spaceChanged(at: ProcessInfo.processInfo.systemUptime)
+        let space = SkyLight.activeSpace()
+        Log.trace("refocus: arrived on Space \(space.map(String.init) ?? "?")")
+        let now = ProcessInfo.processInfo.systemUptime
+        let correctNow = refocusState.spaceChanged(at: now, to: space)
+        // macOS made its pick, if any, as the Space changed; correct it now
+        // rather than after the settle, so it does not show for that long.
+        if correctNow, !overlay.isVisible {
+            let cutoff = refocusState.cutoff
+            let here = recency.rank(lister.currentSpace(), before: cutoff)
+            apply(refocusState.decidePick(
+                here, pick: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+                seenUsed: { [recency] in recency.lastUsed($0.id, before: cutoff) != nil }), here, on: "arrival")
+        }
         refocusTimer?.invalidate()
         refocusTimer = Timer.scheduledTimer(withTimeInterval: Refocus.settle, repeats: false) { [weak self] _ in
             self?.refocus()
@@ -213,12 +236,16 @@ final class Switcher {
             frontmost: NSWorkspace.shared.frontmostApplication?.processIdentifier,
             seenUsed: { [recency] in recency.lastUsed($0.id, before: cutoff) != nil })
 
+        apply(outcome, here, on: "settle")
+    }
+
+    private func apply(_ outcome: Refocus.Outcome, _ here: [Window], on when: String) {
         switch outcome {
         case .leave(let reason):
-            Log.trace("refocus: left alone (\(reason))")
+            Log.trace("refocus (\(when)): left alone (\(reason))")
         case .focus(let id):
             guard let target = here.first(where: { $0.id == id }) else { return }
-            Log.trace("refocus: \(target.id) \"\(target.title)\"")
+            Log.trace("refocus (\(when)): \(target.id) \"\(target.title)\"")
             refocusState.refocusing(target.pid, at: ProcessInfo.processInfo.systemUptime)
             Focus.window(target)
         }
@@ -237,8 +264,13 @@ final class Switcher {
 /// frontmost app and no app was activated around the switch. That is macOS
 /// carrying the active app over to its window here, not a choice: choosing a
 /// window, from the Dock, a notification or Mission Control, activates its
-/// app. scope's own refocus activates one too, and a quick switch back must
-/// not take that for a choice.
+/// app while the Space you leave is still showing, and the switch follows
+/// from it. macOS's own pick on arrival activates one too, but after the
+/// Space has changed and before scope hears of it, so an activation counts as
+/// a choice only if it was made on the Space scope last arrived at, and that
+/// is not the one arrived at now [F37]. This holds for a Space passed through
+/// on the way, too. Nor is scope's own refocus, which a quick switch back must
+/// not take for a choice.
 ///
 /// The arrival itself stamps the carried-over window as used, so the decision
 /// ranks by use before the switch. The margin covers the animation, which runs
@@ -251,6 +283,9 @@ struct Refocus {
     /// An activation of the app scope just refocused, within this long, is
     /// scope's own doing.
     static let ownActivation: TimeInterval = 0.5
+    /// Activations kept: enough that macOS's pick on arrival does not hide a
+    /// choice made just before the switch.
+    static let activationsKept = 4
 
     enum Reason: Equatable {
         case chosen           // focus is on a window that was picked
@@ -264,18 +299,65 @@ struct Refocus {
     }
 
     private(set) var spaceChangedAt: TimeInterval = 0
-    private(set) var lastActivation: TimeInterval = 0
+    /// Whether macOS's pick has been seen, and corrected, ahead of the
+    /// Space-change notification for the switch that made it.
+    private(set) var pickSeen = false
+    /// Recent activations: when, on which Space (nil if unknown), and whether
+    /// that was the Space scope had last arrived at. One that was not is
+    /// macOS's pick.
+    private(set) var activations: [(at: TimeInterval, space: UInt64?, onKnownSpace: Bool)] = []
+    private(set) var arrivedOn: UInt64?
     private(set) var refocused: (pid: pid_t, at: TimeInterval)?
 
     var cutoff: TimeInterval { spaceChangedAt - Self.switchMargin }
 
-    mutating func activated(_ pid: pid_t?, at now: TimeInterval) {
-        if let refocused, refocused.pid == pid, now - refocused.at < Self.ownActivation { return }
-        lastActivation = now
+    var lastActivation: TimeInterval { activations.last?.at ?? 0 }
+
+    /// Whether an app was activated by a choice that led to the switch: after
+    /// the cutoff, on the Space scope had last arrived at, and not the one
+    /// arrived at now. One made anywhere else is macOS's pick on arrival
+    /// [F37]. With the Space unknown (the private call missing), any
+    /// activation after the cutoff counts.
+    var chosenBeforeSwitch: Bool {
+        activations.contains { activation in
+            guard activation.at >= cutoff else { return false }
+            guard let space = activation.space, let arrivedOn else { return true }
+            return activation.onKnownSpace && space != arrivedOn
+        }
     }
 
-    mutating func spaceChanged(at now: TimeInterval) {
+    /// `space`: the Space showing when the activation was handled. Returns
+    /// whether it is macOS's pick on arrival: made on a Space scope has not
+    /// been told it arrived at [F37].
+    @discardableResult
+    mutating func activated(_ pid: pid_t?, at now: TimeInterval, on space: UInt64?) -> Bool {
+        if let refocused, refocused.pid == pid, now - refocused.at < Self.ownActivation { return false }
+        let known = arrivedOn == nil || space == nil || space == arrivedOn
+        activations = Array((activations + [(now, space, known)]).suffix(Self.activationsKept))
+        if !known { pickSeen = true }
+        return !known
+    }
+
+    /// macOS has just picked `pick` on arrival: the window used last here
+    /// gets focus instead, unless it is the pick's own app. Which of its
+    /// windows has focus is left to the decision once the switch settles.
+    func decidePick<W: Rankable>(_ here: [W], pick: pid_t?, seenUsed: (W) -> Bool) -> Outcome {
+        guard let target = here.first, seenUsed(target) else { return .leave(.neverUsed) }
+        if target.pid == pick { return .leave(.alreadyThere) }
+        return .focus(target.id)
+    }
+
+    /// Returns whether to correct focus at once: no choice led to the switch,
+    /// so whatever macOS put in front as it changed the Space is its own pick
+    /// or the active app carried over [F37], and a pick seen ahead of this
+    /// notification has been corrected already. The two notifications come
+    /// in either order.
+    @discardableResult
+    mutating func spaceChanged(at now: TimeInterval, to space: UInt64?) -> Bool {
         spaceChangedAt = now
+        arrivedOn = space
+        defer { pickSeen = false }
+        return !pickSeen && !chosenBeforeSwitch
     }
 
     mutating func refocusing(_ pid: pid_t, at now: TimeInterval) {
@@ -289,7 +371,7 @@ struct Refocus {
         _ here: [W], focused: CGWindowID?, frontmost: pid_t?, seenUsed: (W) -> Bool
     ) -> Outcome {
         if let focused, let window = here.first(where: { $0.id == focused }) {
-            let carried = lastActivation < cutoff && window.pid == frontmost
+            let carried = !chosenBeforeSwitch && window.pid == frontmost
             if !carried { return .leave(.chosen) }
             if here.first?.id == focused { return .leave(.alreadyThere) }
         }

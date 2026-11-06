@@ -64,11 +64,31 @@ struct StampTable {
     }
 
     private(set) var stamps: [CGWindowID: Stamp] = [:]
+    /// The latest activation recorded: which app, and when.
+    private(set) var lastActivation: (pid: pid_t, at: TimeInterval)?
 
-    /// The window was used at `now`.
+    /// The window was used at `now`, as reported by `source`.
+    ///
+    /// Switching apps activates one and deactivates the other, in either
+    /// order [F38]. A deactivation means the window was used until the other app
+    /// took over, so one that arrives after another app's activation is
+    /// recorded just before that activation, not when it arrived. Otherwise
+    /// the app left would rank above the app switched to.
     mutating func record(
-        _ id: CGWindowID, at now: TimeInterval, pid: pid_t, frame: CGRect?, space: UInt64?
+        _ id: CGWindowID, at now: TimeInterval, pid: pid_t, frame: CGRect?, space: UInt64?,
+        as source: Source = .focusChanged
     ) {
+        var now = now
+        switch source {
+        case .activated:
+            lastActivation = (pid, now)
+        case .deactivated:
+            if let taken = lastActivation, taken.pid != pid, taken.at > (stamps[id]?.at ?? -.infinity) {
+                now = min(now, taken.at.nextDown)
+            }
+        case .focusChanged, .startup:
+            break
+        }
         // A window is stamped several times in a burst -- activated, focus
         // changed, deactivated -- so the use kept behind the latest is the
         // newest one from before the burst, not simply the one replaced.
