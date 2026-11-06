@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>scope — window switching for the current macOS Space</title>
+<meta name="description" content="Keyboard-first window switching on macOS, scoped to the current Space. Keyboard focus follows you between Spaces, and the Space shortcuts switch instantly, or with a slide as long as you like.">
+<meta property="og:title" content="scope">
+<meta property="og:description" content="Keyboard-first window switching on macOS, scoped to the current Space.">
+<meta property="og:image" content="https://np25071984.github.io/Scope/screenshot.png">
+<style>
+  :root {
+    --bg: #fbfbfd;
+    --surface: #ffffff;
+    --text: #1d1d1f;
+    --muted: #5f6368;
+    --line: #e3e3e8;
+    --accent: #4b57d6;
+    --accent-text: #ffffff;
+    --code-bg: #f2f2f6;
+    --kbd-bg: #ffffff;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .06), 0 8px 30px rgba(0, 0, 0, .08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111114;
+      --surface: #1b1b20;
+      --text: #ececf1;
+      --muted: #a1a1aa;
+      --line: #2c2c33;
+      --accent: #8b93ff;
+      --accent-text: #111114;
+      --code-bg: #212128;
+      --kbd-bg: #26262e;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 30px rgba(0, 0, 0, .35);
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 17px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  main, footer { max-width: 880px; margin: 0 auto; padding: 0 20px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  h1, h2, h3 { line-height: 1.2; letter-spacing: -0.01em; }
+  h2 { font-size: 1.6rem; margin: 0 0 .6rem; }
+  h3 { font-size: 1.1rem; margin: 0 0 .4rem; }
+  p { margin: 0 0 1rem; }
+  code, kbd, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }
+  code { background: var(--code-bg); padding: .1em .35em; border-radius: 5px; }
+  kbd {
+    display: inline-block; min-width: 1.6em; padding: 0 .4em; text-align: center;
+    background: var(--kbd-bg); border: 1px solid var(--line); border-bottom-width: 2px;
+    border-radius: 6px; font-size: .85em; line-height: 1.6;
+  }
+
+  .hero { padding: 72px 0 32px; text-align: center; }
+  .hero h1 { font-size: clamp(2.4rem, 7vw, 3.6rem); margin: 0 0 .8rem; }
+  .hero p { text-wrap: balance; }
+  .hero .lead { font-size: clamp(1.15rem, 3vw, 1.35rem); max-width: 640px; margin: 0 auto 1rem; }
+  .hero .sub { color: var(--muted); max-width: 600px; margin: 0 auto 2rem; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+  .button {
+    display: inline-block; padding: .65em 1.3em; border-radius: 10px; font-weight: 600;
+    border: 1px solid var(--line); color: var(--text); background: var(--surface);
+  }
+  .button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  .button:hover { text-decoration: none; filter: brightness(1.05); }
+
+  .shot { margin: 40px 0 8px; }
+  .shot img {
+    display: block; width: 100%; height: auto; border-radius: 12px;
+    border: 1px solid var(--line); box-shadow: var(--shadow);
+  }
+
+  section { padding: 48px 0 8px; }
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px;
+  }
+  .card p { margin: 0; color: var(--muted); }
+  .card .keys { margin: 0 0 .7rem; }
+
+  .facts { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+  .facts li { padding-left: 1.4em; position: relative; }
+  .facts li::before { content: "–"; position: absolute; left: 0; color: var(--muted); }
+
+  .cmd {
+    display: flex; align-items: center; gap: 10px; margin: 0 0 1rem;
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 10px 10px 14px;
+  }
+  .cmd pre { margin: 0; flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .copy {
+    flex: none; font: inherit; font-size: .85rem; padding: .35em .8em; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--surface); color: var(--text);
+  }
+  .note { color: var(--muted); font-size: .95rem; }
+
+  footer {
+    margin-top: 56px; padding-top: 24px; padding-bottom: 48px; border-top: 1px solid var(--line);
+    color: var(--muted); font-size: .95rem; display: flex; flex-wrap: wrap; gap: 8px 20px;
+  }
+  @media (max-width: 520px) {
+    body { font-size: 16px; }
+    .hero { padding-top: 48px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header class="hero">
+    <h1>scope</h1>
+    <p class="lead">Keyboard-first window switching on macOS, scoped to the current Space.</p>
+    <p class="sub">Keyboard focus follows you between Spaces, and the Space shortcuts switch instantly, or with a slide as long as you like.</p>
+    <div class="actions">
+      <a class="button primary" href="#install">Install</a>
+      <a class="button" href="https://github.com/np25071984/Scope">Source on GitHub</a>
+    </div>
+  </header>
+
+  <figure class="shot">
+    <img src="screenshot.png" width="1600" height="1034" alt="The scope overlay open over a blurred browser window, listing the windows of the current Space with the selected row highlighted">
+  </figure>
+
+  <section aria-labelledby="what">
+    <h2 id="what">What it does</h2>
+    <div class="features">
+      <div class="card">
+        <p class="keys"><kbd>⌘</kbd> <kbd>Tab</kbd></p>
+        <h3>A window switcher for this Space</h3>
+        <p>Lists windows, not apps, from the current Space only, most recently used first. Hold <kbd>⌘</kbd>, tab to the one you want, release.</p>
+      </div>
+      <div class="card">
+        <p class="keys"><kbd>⌃</kbd> <kbd>←</kbd> <kbd>→</kbd> or a swipe</p>
+        <h3>Focus that follows you</h3>
+        <p>Arrive on a Space and you can type straight into the window you last used there, even when macOS left focus somewhere else.</p>
+      </div>
+      <div class="card">
+        <p class="keys"><kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd></p>
+        <h3>Space shortcuts that keep up</h3>
+        <p>Switch instantly, or with a slide as long as you choose, and they still work while a swipe is sliding.</p>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="small">
+    <h2 id="small">Small on purpose</h2>
+    <ul class="facts">
+      <li>One open-source binary of about 1 MB, run as a background service. No app, Dock icon or menu bar.</li>
+      <li>One permission, Accessibility. No Screen Recording, no network.</li>
+      <li>Set up in a <a href="https://github.com/np25071984/Scope#configuration">text file</a>, controlled with <a href="https://github.com/np25071984/Scope#commands">a few commands</a>.</li>
+      <li>Swipes, Mission Control and Stage Manager keep working exactly as before.</li>
+    </ul>
+  </section>
+
+  <section id="install" aria-labelledby="install-h">
+    <h2 id="install-h">Install</h2>
+    <p>macOS 13 or later, on Apple Silicon or Intel. In Terminal:</p>
+    <div class="cmd">
+      <pre id="curl">curl -fsSL https://raw.githubusercontent.com/np25071984/Scope/main/install.sh | sh</pre>
+      <button class="copy" data-copy="curl" type="button">Copy</button>
+    </div>
+    <p>Or with Homebrew:</p>
+    <div class="cmd">
+      <pre id="brew">brew tap np25071984/scope https://github.com/np25071984/Scope
+brew trust np25071984/scope
+brew install scope
+brew services start scope</pre>
+      <button class="copy" data-copy="brew" type="button">Copy</button>
+    </div>
+    <p class="note">On first start, scope asks for Accessibility permission and opens the right pane of System Settings: turn on <strong>scope</strong> there. Everything else, from settings to uninstalling, is in the <a href="https://github.com/np25071984/Scope#install">README</a>.</p>
+  </section>
+</main>
+
+<footer>
+  <a href="https://github.com/np25071984/Scope">GitHub</a>
+  <a href="https://github.com/np25071984/Scope#readme">README</a>
+  <a href="https://github.com/np25071984/Scope/blob/main/CHANGELOG.md">Changelog</a>
+  <a href="https://github.com/np25071984/Scope/releases/latest">Latest release</a>
+  <span>MIT license</span>
+</footer>
+
+<script>
+  document.querySelectorAll(".copy").forEach(function (button) {
+    button.addEventListener("click", function () {
+      var text = document.getElementById(button.dataset.copy).textContent;
+      var done = function () {
+        button.textContent = "Copied";
+        setTimeout(function () { button.textContent = "Copy"; }, 1500);
+      };
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(done, function () {});
+      }
+    });
+  });
+</script>
+</body>
+</html>
