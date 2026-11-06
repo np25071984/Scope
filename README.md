@@ -1,6 +1,6 @@
 # Scope
 
-Keyboard-first window switching on macOS, scoped to the current Space, and keyboard focus that follows you when you change Spaces.
+Keyboard-first window switching on macOS, scoped to the current Space, with keyboard focus that follows you between Spaces. Its Space shortcuts switch instantly, or with a slide as long as you like.
 
 ## The problem
 
@@ -14,13 +14,17 @@ The Space shortcuts, <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd>
 
 ## What this does
 
-scope does three things: a window switcher for the current Space, focus that follows you when you change Spaces, and Space shortcuts that still work while a swipe is sliding, with a slide as long as you choose.
+scope does three things:
+
+- [A window switcher](#window-switcher) for the current Space.
+- [Focus that follows you](#focus-follows-you-across-spaces) when you change Spaces.
+- [Space shortcuts](#jump-to-a-space) that switch instantly, or with a slide as long as you choose, and still work while a swipe is sliding.
 
 ### Window switcher
 
 Replaces the switcher with one that lists **windows** (not apps) from the **current Space only**, driven from the keyboard, with the pointer there when you would rather aim at the window you want than count Tabs to it.
 
-![The scope overlay open over a Terminal window, listing the windows of the current Space with the selected row highlighted](docs/screenshot.png)
+![The scope overlay open over a blurred browser window, listing the windows of the current Space with the selected row highlighted](docs/screenshot.png)
 
 | Shortcut | Action |
 |---|---|
@@ -46,7 +50,7 @@ To cycle windows of the current app only, use the native <kbd>⌘</kbd> <kbd>`</
 
 When you arrive on a Space, scope makes sure the keyboard goes to the window you last used there. You can type straight away, with no click first.
 
-It steps in in three cases:
+It corrects three cases:
 
 - **Nothing on the new Space has focus.** macOS keeps the previous Space's app active when it has no window here — Finder after a click on the desktop is the usual case — so your window is in front but not focused.
 - **macOS focused a window you did not pick.** When the app you just left also has a window on the new Space, macOS hands focus to that window instead of the one you were working in.
@@ -56,9 +60,11 @@ It leaves focus alone when you chose where to go: a window clicked in the Dock, 
 
 ### Jump to a Space
 
-The "Switch to Desktop N" shortcuts, <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd> by default, take you to that Space, and with `refocus` on, to the window you last used there. `spaces` sets how the switch looks: macOS's own slide, a slide of the length you choose, or none at all with `spaces = 0`. Pressed while a swipe is still sliding, which macOS ignores, the shortcut for the Space you are leaving cancels the swipe, and any other goes straight on to its Space.
+The "Switch to Desktop N" shortcuts, <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd> by default, take you to that Space, and with `refocus` on, to the window you last used there. Set `spaces = 0` and they switch instantly, with no slide; or set the slide's length in seconds, or keep macOS's own with `spaces = macos`, the default. Pressed while a swipe is still sliding, when macOS would ignore them, a shortcut goes straight to its Space, cancelling the swipe if that is where you started.
 
 scope uses the shortcuts that are on in System Settings → Keyboard → Keyboard Shortcuts → Mission Control, with whatever keys they are set to; run `scope reload` after changing them. scope's own slides work the way [InstantSpaceSwitcher](https://github.com/jurplel/InstantSpaceSwitcher)'s do, with a synthetic trackpad swipe. A slide of a set length needs macOS 27 or later; on earlier versions any length switches at once, and `scope status` and `scope reload` say so.
+
+Other ways of changing Space don't go through scope: three-finger swipes, Mission Control and Stage Manager work exactly as before. scope only steps in afterwards, to put keyboard focus on the window you last used there, as described in [Focus follows you across Spaces](#focus-follows-you-across-spaces).
 
 ## Is scope for you?
 
@@ -180,33 +186,7 @@ The decision logic is covered by tests: `swift test`.
 
 ## Changelog
 
-### 2.3.1 — 2026-11-02
-
-Switching back to a Space no longer focuses another app's window there when that app was the one you were using on the Space you left. Upgrade with `brew upgrade scope` and `brew services restart scope`, or run `install.sh` again; the Accessibility permission is kept.
-
-### 2.3.0 — 2026-10-31
-
-scope can be installed with Homebrew: `brew tap np25071984/scope https://github.com/np25071984/Scope`, `brew trust np25071984/scope`, `brew install scope`, `brew services start scope`. The formula installs the signed release, and its service runs a copy at a path that stays the same across versions, so `brew upgrade` keeps the Accessibility permission. `scope start`, `stop` and `restart` hand over to `brew services` when Homebrew installed scope, and `scope status` recognises Homebrew 7's service label, `sh.brew.scope`. When scope needs the permission, it names the file to allow: the copy the service runs.
-
-### 2.2.0 — 2026-10-31
-
-scope is now installed from a prebuilt release, with no sources needed: `curl -fsSL https://raw.githubusercontent.com/np25071984/Scope/main/install.sh | sh`. Running it again upgrades, and the permission is kept. Releases run on Apple Silicon and Intel, and are signed with scope's release certificate, which the installer checks. New `scope uninstall` removes scope without the sources. `./build.sh --install` is now for working on scope.
-
-Upgrading from a source build: run the installer, then turn on **scope** in Accessibility again, since a release is signed with a different certificate from your local builds.
-
-### 2.1.0 — 2026-10-31
-
-scope is now a single `scope` binary run as a launchd service instead of Scope.app. Install with `./build.sh --install`, which puts it in `~/.local/bin` by default (`--prefix` to change), starts it, and has launchd start it at login and restart it after a crash. The menu bar is gone: settings move from user defaults to `~/.config/scope/scope.conf`, and `scope start | stop | restart | reload | status | logs | list` replace the menu. `scope list` now asks the running service, so it shows the switcher's own order with each window's last use, and no longer needs the terminal to have Accessibility permission. The *Enabled* switch is gone (`scope stop`), and so are *Launch at Login* and *Hide Menu Bar Icon*. The service checks for Accessibility permission every 5 seconds instead of showing an alert. `build.sh` now also finds a self-signed certificate that is not marked as trusted, which it used to skip, falling back to ad-hoc signing.
-
-Upgrading from 2.0.x: quit Scope.app, delete `/Applications/Scope.app`, run `./build.sh --install`, and grant **scope** Accessibility permission. Settings are not carried over; set them again in `scope.conf`.
-
-### 2.0.1 — 2026-10-31
-
-Switching to a Space now focuses the window you last used there, even when the app you left also has a window on that Space. macOS focuses that app's window on arrival, and scope used to treat it as your choice and leave it. scope now recognises this case because no app was activated around the switch, and it ranks windows by their use from before the switch, since arriving stamps the carried-over window as used. A window you pick from the Dock, a notification or Mission Control is still left alone.
-
-### 2.0.0
-
-First native build, Scope.app. Versions 0.0.1 to 1.2.2 were a scripted predecessor; they remain in the git history.
+What changed in each release, back to the first: [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
