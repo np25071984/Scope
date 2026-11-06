@@ -1,6 +1,6 @@
 # Scope
 
-Keyboard-first window switching on macOS, scoped to the current Space, with keyboard focus that follows you between Spaces and Space shortcuts that work mid-swipe.
+Keyboard-first window switching on macOS, scoped to the current Space, with keyboard focus that follows you between Spaces. Its Space shortcuts switch instantly, or with a slide as long as you like.
 
 ## The problem
 
@@ -18,7 +18,7 @@ scope does three things:
 
 - [A window switcher](#window-switcher) for the current Space.
 - [Focus that follows you](#focus-follows-you-across-spaces) when you change Spaces.
-- [Space shortcuts](#jump-to-a-space) that still work while a swipe is sliding, with a slide as long as you choose.
+- [Space shortcuts](#jump-to-a-space) that switch instantly, or with a slide as long as you choose, and still work while a swipe is sliding.
 
 ### Window switcher
 
@@ -60,7 +60,7 @@ It leaves focus alone when you chose where to go: a window clicked in the Dock, 
 
 ### Jump to a Space
 
-The "Switch to Desktop N" shortcuts, <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd> by default, take you to that Space, and with `refocus` on, to the window you last used there. `spaces` sets how these shortcuts switch: macOS's own slide, a slide of the length you choose, or none at all with `spaces = 0`. Pressed while a swipe is still sliding, when macOS would ignore them, a shortcut goes straight to its Space, cancelling the swipe if that is where you started.
+The "Switch to Desktop N" shortcuts, <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd> by default, take you to that Space, and with `refocus` on, to the window you last used there. Set `spaces = 0` and they switch instantly, with no slide; or set the slide's length in seconds, or keep macOS's own with `spaces = macos`, the default. Pressed while a swipe is still sliding, when macOS would ignore them, a shortcut goes straight to its Space, cancelling the swipe if that is where you started.
 
 scope uses the shortcuts that are on in System Settings → Keyboard → Keyboard Shortcuts → Mission Control, with whatever keys they are set to; run `scope reload` after changing them. scope's own slides work the way [InstantSpaceSwitcher](https://github.com/jurplel/InstantSpaceSwitcher)'s do, with a synthetic trackpad swipe. A slide of a set length needs macOS 27 or later; on earlier versions any length switches at once.
 
