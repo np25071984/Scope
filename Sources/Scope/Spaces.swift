@@ -82,7 +82,7 @@ enum SpaceJump {
         /// A slide is running away from the Space asked for: one swipe back cancels it.
         case cancel(SwipeDirection)
         /// A slide is running and macOS ignores the key until it lands, so
-        /// instant synthetic swipes take over from it, whatever `slide` says: `steps`
+        /// instant synthetic swipes take over from it, whatever `spaces` says: `steps`
         /// more toward `space`, none if the slide is already going there.
         case redirect(SwipeDirection, steps: Int, to: UInt64, window: CGWindowID?)
         /// A slide is running and which way is unknown: decide once it lands.
