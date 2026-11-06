@@ -77,6 +77,19 @@ enum SkyLight {
         return []
     }
 
+    /// Every Space of the display showing `space`, full-screen ones too, in
+    /// Mission Control order [F39].
+    static func displaySpaces(withSpace space: UInt64) -> [UInt64] {
+        guard let mainConnection, let copyDisplaySpaces,
+              let displays = copyDisplaySpaces(mainConnection())?.takeRetainedValue() as? [[String: Any]]
+        else { return [] }
+        for display in displays {
+            let ids = (display["Spaces"] as? [[String: Any]] ?? []).compactMap { $0["id64"] as? UInt64 }
+            if ids.contains(space) { return ids }
+        }
+        return []
+    }
+
     /// The Spaces each window is on now. A window that is gone is on none [F39].
     static func spaces(of windows: [CGWindowID]) -> [CGWindowID: [UInt64]] {
         guard let mainConnection, let copySpacesForWindows else { return [:] }
@@ -128,50 +141,5 @@ enum SkyLight {
         bytes[0x08] = 0x02
         _ = postEventRecord(&psn, &bytes)
         return true
-    }
-}
-
-/// Windows on other Spaces, which an app's Accessibility window list leaves
-/// out [F40].
-enum RemoteAX {
-    private typealias CreateWithRemoteToken = @convention(c) (CFData) -> Unmanaged<AXUIElement>?
-    private static let createWithRemoteToken: CreateWithRemoteToken? = dlsym(
-        UnsafeMutableRawPointer(bitPattern: -2), "_AXUIElementCreateWithRemoteToken"
-    ).map { unsafeBitCast($0, to: CreateWithRemoteToken.self) }
-
-    /// The token's tag, "coco", that marks it as naming a Cocoa element.
-    private static let tokenTag: Int32 = 0x636f636f
-    /// How many element ids to try. An app's windows have come out well under
-    /// a hundred; the margin is for an app that has made many elements.
-    static let maxElementID: UInt64 = 2000
-
-    /// The window element for `window` of `pid`, wherever the window is.
-    /// Several elements map to one window id, and only the one whose role is
-    /// window can be raised or made main [F40]. Nil if the call is gone, the
-    /// app does not answer, or no element matches.
-    static func window(pid: pid_t, id window: CGWindowID) -> AXUIElement? {
-        guard let createWithRemoteToken else { return nil }
-        for elementID in 0..<maxElementID {
-            var token = Data(count: 20)
-            token.withUnsafeMutableBytes { raw in
-                raw.storeBytes(of: pid, toByteOffset: 0, as: Int32.self)
-                raw.storeBytes(of: 0, toByteOffset: 4, as: Int32.self)
-                raw.storeBytes(of: tokenTag, toByteOffset: 8, as: Int32.self)
-                raw.storeBytes(of: elementID, toByteOffset: 12, as: UInt64.self)
-            }
-            guard let element = createWithRemoteToken(token as CFData)?.takeRetainedValue() else { continue }
-            var id: CGWindowID = 0
-            switch _AXUIElementGetWindow(element, &id) {
-            case .success:
-                guard id == window else { continue }
-                if AX.attribute(element, kAXRoleAttribute, as: String.self) == kAXWindowRole { return element }
-            case .cannotComplete:
-                // The app is not answering; asking two thousand times will not help.
-                return nil
-            default:
-                continue
-            }
-        }
-        return nil
     }
 }

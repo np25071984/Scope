@@ -37,6 +37,15 @@ struct SpaceKeyTapTests {
         #expect(!state.open)
     }
 
+    @Test("a Dock swipe's lift is reported with its fling, and never swallowed; other phases are only watched")
+    func swipeLift() {
+        var state = KeyTap.State()
+        #expect(state.handle(.dockSwipe(phase: 4, velocity: -3.6, progress: -0.2)) == .init(action: .swiped(-3.6)))
+        #expect(state.handle(.dockSwipe(phase: 4, velocity: 0, progress: 0.3)) == .init(action: .swiped(0.3)))
+        #expect(state.handle(.dockSwipe(phase: 2, velocity: 0, progress: 0.1)) == .init())
+        #expect(state.handle(.dockSwipe(phase: 4, velocity: 0, progress: 0)) == .init())
+    }
+
     @Test("with the setting off there are no shortcuts, and ⌃N passes")
     func offPasses() {
         var state = KeyTap.State()

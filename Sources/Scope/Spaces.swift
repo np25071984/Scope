@@ -1,9 +1,10 @@
 // Jumping to a Space by number: the ⌃1…⌃9 shortcuts, taken over from macOS.
 //
-// macOS's own switch lands on a Space and then picks an app for it, which is
-// often not the one last used there [F37]. scope instead focuses the window
-// last used on that Space, and macOS follows it there: a switch made by
-// choosing a window, which macOS leaves alone [F41].
+// macOS's own switch slides to a Space and then picks an app for it, which is
+// often not the one last used there [F37], and it ignores the key while a
+// swipe's slide is still running [F45]. scope switches with synthetic swipes
+// instead, which land at once [F46], and then focuses the window last used on
+// that Space. During a slide, a swipe back cancels it.
 //
 // Pure: the shortcuts come in as the preferences dictionary, the Spaces and
 // windows as plain values.
@@ -64,7 +65,7 @@ enum SpaceKeys {
 }
 
 enum SpaceJump {
-    /// A window scope could jump to: where it is now, and when it was last used.
+    /// A window scope could focus on arrival: where it is now, and when it was last used.
     struct Candidate: Equatable {
         let id: CGWindowID
         let pid: pid_t
@@ -73,26 +74,89 @@ enum SpaceJump {
         let lastUsed: TimeInterval
     }
 
-    enum Outcome: Equatable {
-        case jump(CGWindowID)
+    /// What a ⌃N press comes to.
+    enum Plan: Equatable {
+        /// Swipe `steps` Spaces over to `space`, then focus `window` there, if
+        /// one was seen used.
+        case swipe(SwipeDirection, steps: Int, to: UInt64, window: CGWindowID?)
+        /// A slide is running away from the Space asked for: one swipe back cancels it.
+        case cancel(SwipeDirection)
+        /// A slide is running and macOS ignores the key until it lands, so
+        /// synthetic swipes take over from it, whatever `animate` says: `steps`
+        /// more toward `space`, none if the slide is already going there.
+        case redirect(SwipeDirection, steps: Int, to: UInt64, window: CGWindowID?)
+        /// A slide is running and which way is unknown: decide once it lands.
+        case wait
         /// Let macOS have the key.
         case pass
     }
 
-    /// `desktops`: the focused display's desktops in order, full-screen Spaces
-    /// left out, as "Desktop N" counts them [F39].
-    static func decide(number: Int, desktops: [UInt64], current: UInt64?, candidates: [Candidate]) -> Outcome {
+    /// How often to look again while a slide is running: once a frame.
+    static let settlePoll: TimeInterval = 1.0 / 60
+    /// Stop waiting after this long and decide anyway. A swipe's slide ends in
+    /// well under a second; this is for a screen that never looks settled,
+    /// such as a case scope has not met.
+    static let settleLimit: TimeInterval = 1.5
+
+    /// Whether the display has finished switching: no window on screen
+    /// belongs to another of its Spaces alone. While a slide is running, the
+    /// current Space has not changed yet, and the windows of the Space it is
+    /// heading for are already on screen [F45]. `onScreen`: the Spaces of
+    /// each window on screen. `spaces`: every Space of the display, so
+    /// another display's windows do not count.
+    static func settled(current: UInt64, spaces: [UInt64], onScreen: [[UInt64]]) -> Bool {
+        !onScreen.contains { $0.count == 1 && $0[0] != current && spaces.contains($0[0]) }
+    }
+
+    /// Which way a running slide is heading: toward the neighbour whose
+    /// windows are on screen. Nil if neither or both are, which leaves it
+    /// unknown.
+    static func heading(current: UInt64, spaces: [UInt64], onScreen: [[UInt64]]) -> SwipeDirection? {
+        guard let i = spaces.firstIndex(of: current) else { return nil }
+        let shown = Set(onScreen.compactMap { $0.count == 1 ? $0[0] : nil })
+        let left = i > 0 && shown.contains(spaces[i - 1])
+        let right = i + 1 < spaces.count && shown.contains(spaces[i + 1])
+        if left == right { return nil }
+        return left ? .left : .right
+    }
+
+    /// A swipe's direction from the sign of its fling or progress: positive is
+    /// right, the other way with natural scrolling on [F47].
+    static func direction(of value: Double, natural: Bool) -> SwipeDirection {
+        (value > 0) != natural ? .right : .left
+    }
+
+    /// `spaces`: every Space of the focused display in Mission Control order,
+    /// full-screen ones too, which a swipe steps through. `desktops`: the
+    /// ones "Desktop N" counts [F39]. `heading`: nil when the display has
+    /// settled, else where its slide is going, `.some(nil)` if that is unknown.
+    static func plan(number: Int, spaces: [UInt64], desktops: [UInt64], current: UInt64,
+                     sliding heading: SwipeDirection??, candidates: [Candidate]) -> Plan {
         guard number >= 1, number <= desktops.count else { return .pass }
         let target = desktops[number - 1]
-        // Already there: macOS does nothing either, and the window here keeps focus.
-        if target == current { return .pass }
-        // Only a window on that Space alone. One shown on every Space would be
-        // focused where you are, and no switch would follow.
-        let here = candidates.filter { $0.spaces == [target] }
-        // A Space with no recorded use: macOS's own switch is no worse than a
-        // guess, and the window list's order across Spaces is not each Space's
-        // stacking order [F43].
-        guard let newest = here.max(by: { $0.lastUsed < $1.lastUsed }) else { return .pass }
-        return .jump(newest.id)
+        guard let from = spaces.firstIndex(of: current), let to = spaces.firstIndex(of: target) else { return .pass }
+        // Only a window on that Space alone: one shown on every Space is no
+        // record of use there.
+        let window = candidates.filter { $0.spaces == [target] }.max { $0.lastUsed < $1.lastUsed }?.id
+        let direction: SwipeDirection = to > from ? .right : .left
+        let distance = abs(to - from)
+        if let heading {
+            // The current Space is still the one being left.
+            guard let heading else { return .wait }
+            if target == current { return .cancel(heading.reversed) }
+            // The same way: the slide already covers the first step. Back the
+            // other way: one more step undoes the slide first [F46].
+            let steps = direction == heading ? distance - 1 : distance + 1
+            return .redirect(direction, steps: steps, to: target, window: window)
+        }
+        guard target != current else { return .pass }
+        return .swipe(direction, steps: distance, to: target, window: window)
+    }
+
+    /// The Spaces a multi-step swipe passes on the way, which macOS may
+    /// report arriving at before the last.
+    static func between(_ a: UInt64, _ b: UInt64, in spaces: [UInt64]) -> Set<UInt64> {
+        guard let i = spaces.firstIndex(of: a), let j = spaces.firstIndex(of: b), abs(i - j) > 1 else { return [] }
+        return Set(spaces[(min(i, j) + 1)..<max(i, j)])
     }
 }

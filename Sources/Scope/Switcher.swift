@@ -13,10 +13,21 @@ final class Switcher {
     private var index = 0
     private var watchdog: Timer?
     private var refocusTimer: Timer?
+    /// A Space shortcut waiting for a switch already under way to finish.
+    private var pendingJump: (number: Int, code: Int64, flags: CGEventFlags)?
+    private var jumpTimer: Timer?
+    /// A swipe scope posted, until it lands: where to, the window to focus
+    /// there, and the Spaces it passes on the way.
+    private var arriving: (space: UInt64, window: CGWindowID?, passing: Set<UInt64>)?
+    /// Which way the slide now running goes, when scope knows: a swipe was
+    /// seen ending, or scope started it. Cleared once it lands.
+    private var slide: SwipeDirection?
     private var refocusState = Refocus()
     private var icons: [pid_t: NSImage] = [:]
 
     var refocusEnabled = true
+    /// ⌃N slides as macOS's own switch does; false switches at once.
+    var animateSpaces = true
 
     func start() -> Bool {
         WindowLister.configureTimeout()
@@ -78,6 +89,7 @@ final class Switcher {
         case .pick(let row): select(row); commit()
         case .cancel: cancel()
         case .space(let number, let code, let flags): jump(to: number, code: code, flags: flags)
+        case .swiped(let value): slide = Swipe.direction(of: value)
         }
     }
 
@@ -188,30 +200,105 @@ final class Switcher {
 
     // MARK: Jumping to a Space
 
-    /// ⌃N: focus the window last used on Space N, and macOS follows it there.
-    /// Anything else hands the key back to macOS.
+    /// ⌃N: plan it once no slide is in the way, then carry the plan out. A
+    /// later press replaces one still waiting.
     private func jump(to number: Int, code: Int64, flags: CGEventFlags) {
+        pendingJump = (number, code, flags)
+        guard jumpTimer == nil else { return }
+        let started = ProcessInfo.processInfo.systemUptime
+        func check() -> Bool {
+            guard let pending = pendingJump else { return true }
+            let waited = ProcessInfo.processInfo.systemUptime - started
+            let plan = planJump(pending.number, giveUp: waited >= SpaceJump.settleLimit)
+            if plan == .wait { return false }
+            pendingJump = nil
+            if waited >= SpaceJump.settlePoll { Log.trace("space \(pending.number): after \(Int(waited * 1000))ms of slide") }
+            carry(plan, number: pending.number, code: pending.code, flags: pending.flags)
+            return true
+        }
+        if check() { return }
+        jumpTimer = Timer.scheduledTimer(withTimeInterval: SpaceJump.settlePoll, repeats: true) { [weak self] timer in
+            if check() { timer.invalidate(); self?.jumpTimer = nil }
+        }
+    }
+
+    private func planJump(_ number: Int, giveUp: Bool) -> SpaceJump.Plan {
+        guard !overlay.isVisible, let current = SkyLight.activeSpace() else { return .pass }
+        let spaces = SkyLight.displaySpaces(withSpace: current)
+        let ids = WindowLister.onScreenIDs()
+        let onScreenSpaces = SkyLight.spaces(of: ids)
+        let onScreen = ids.map { onScreenSpaces[$0] ?? [] }
+        let settled = giveUp || SpaceJump.settled(current: current, spaces: spaces, onScreen: onScreen)
+        if settled { slide = nil }
+        // The direction scope saw the slide start in, else what is on screen,
+        // which can show both neighbours [F47].
+        let sliding: SwipeDirection?? =
+            settled ? nil : .some(slide ?? SpaceJump.heading(current: current, spaces: spaces, onScreen: onScreen))
+        let uses = recency.lastUses()
+        let windowSpaces = SkyLight.spaces(of: Array(uses.keys))
+        let candidates = uses.map { id, use in
+            SpaceJump.Candidate(id: id, pid: use.pid, spaces: windowSpaces[id] ?? [], lastUsed: use.at)
+        }
+        return SpaceJump.plan(
+            number: number, spaces: spaces, desktops: SkyLight.desktops(withSpace: current),
+            current: current, sliding: sliding, candidates: candidates)
+    }
+
+    private func carry(_ plan: SpaceJump.Plan, number: Int, code: Int64, flags: CGEventFlags) {
         let replay = {
             Log.trace("space \(number): left to macOS")
             KeyTap.replay(code: code, flags: flags)
         }
-        guard !overlay.isVisible, let current = SkyLight.activeSpace() else { return replay() }
-        let uses = recency.lastUses()
-        let spaces = SkyLight.spaces(of: Array(uses.keys))
-        let candidates = uses.map { id, use in
-            SpaceJump.Candidate(id: id, pid: use.pid, spaces: spaces[id] ?? [], lastUsed: use.at)
+        switch plan {
+        case .wait, .pass:
+            replay()
+        case .cancel(let direction):
+            Log.trace("space \(number): cancelling the slide")
+            if !Swipe.post(direction, steps: 1) { replay() }
+        case .redirect(let direction, let steps, let space, let window):
+            Log.trace("space \(number): mid-slide, \(steps) swipe\(steps == 1 ? "" : "s") \(direction), then window \(window.map(String.init) ?? "none")")
+            // The Space being left counts as passed: the slide may be undone first.
+            let current = SkyLight.activeSpace() ?? space
+            let passing = SpaceJump.between(current, space, in: SkyLight.displaySpaces(withSpace: current))
+            arriving = (space, window, passing.union([current]))
+            slide = direction
+            if steps > 0, !Swipe.post(direction, steps: steps) {
+                arriving = nil
+                replay()
+            }
+        case .swipe(let direction, let steps, let space, let window):
+            let current = SkyLight.activeSpace() ?? space
+            arriving = (space, window, SpaceJump.between(current, space, in: SkyLight.displaySpaces(withSpace: current)))
+            slide = direction
+            if animateSpaces {
+                // macOS's own switch, with its slide; scope still focuses on arrival.
+                Log.trace("space \(number): macOS slides there, then window \(window.map(String.init) ?? "none")")
+                KeyTap.replay(code: code, flags: flags)
+                return
+            }
+            Log.trace("space \(number): \(steps) swipe\(steps == 1 ? "" : "s") \(direction), then window \(window.map(String.init) ?? "none")")
+            if !Swipe.post(direction, steps: steps) {
+                arriving = nil
+                replay()
+            }
         }
-        let outcome = SpaceJump.decide(
-            number: number, desktops: SkyLight.desktops(withSpace: current), current: current,
-            candidates: candidates)
-        guard case .jump(let id) = outcome, let pid = uses[id]?.pid else { return replay() }
-        Log.trace("space \(number): window \(id) of pid \(pid)")
-        recency.jumping(pid: pid, window: id)
-        Focus.jump(pid: pid, window: id) { [recency] in
-            recency.jumpEnded()
-            Log.trace("space \(number): window \(id) not reachable")
-            KeyTap.replay(code: code, flags: flags)
+    }
+
+    /// A Space was arrived at. If it is where scope's swipe was going, focus
+    /// the window it planned, and tell the caller to leave refocus out of it;
+    /// a Space passed on the way is left alone too. Anything else ends the jump.
+    private func landed(on space: UInt64?) -> Bool {
+        slide = nil
+        guard let jump = arriving, let space else { return false }
+        if jump.passing.contains(space) { return true }
+        arriving = nil
+        guard space == jump.space else { return false }
+        if let id = jump.window, let window = lister.currentSpace().first(where: { $0.id == id }) {
+            Log.trace("space: landed, focusing \(id)")
+            refocusState.refocusing(window.pid, at: ProcessInfo.processInfo.systemUptime)
+            Focus.window(window)
         }
+        return true
     }
 
     // MARK: Keeping focus on the Space you arrive in
@@ -225,7 +312,7 @@ final class Switcher {
         let pick = refocusState.activated(pid, at: now, on: space)
         // macOS's pick is already in front; correct it now rather than after
         // the settle, so it does not show for that long.
-        guard pick, refocusEnabled, !overlay.isVisible else { return }
+        guard pick, !landed(on: space), refocusEnabled, !overlay.isVisible else { return }
         let cutoff = now - Refocus.switchMargin
         let here = recency.rank(lister.currentSpace(), before: cutoff)
         apply(refocusState.decidePick(
@@ -234,16 +321,15 @@ final class Switcher {
     }
 
     private func spaceChanged() {
-        // A jump's app names the wrong window only before the switch [F44].
-        recency.jumpEnded()
-        guard refocusEnabled else { return }
         let space = SkyLight.activeSpace()
+        let jumped = landed(on: space)
+        guard refocusEnabled else { return }
         Log.trace("refocus: arrived on Space \(space.map(String.init) ?? "?")")
         let now = ProcessInfo.processInfo.systemUptime
         let correctNow = refocusState.spaceChanged(at: now, to: space)
         // macOS made its pick, if any, as the Space changed; correct it now
         // rather than after the settle, so it does not show for that long.
-        if correctNow, !overlay.isVisible {
+        if correctNow, !jumped, !overlay.isVisible {
             let cutoff = refocusState.cutoff
             let here = recency.rank(lister.currentSpace(), before: cutoff)
             apply(refocusState.decidePick(

@@ -28,6 +28,9 @@ final class KeyTap {
         /// A "Switch to Desktop N" shortcut, swallowed. `code` and `flags` are
         /// the key, to hand back to macOS if scope does not jump.
         case space(number: Int, code: Int64, flags: CGEventFlags)
+        /// A Dock swipe ended, so a slide has started: the sign of its fling,
+        /// which `Swipe.direction` reads [F47].
+        case swiped(Double)
     }
 
     struct Geometry: Equatable {
@@ -51,6 +54,9 @@ final class KeyTap {
         case pointerMoved(CGPoint)
         case pointerDown
         case pointerUp(CGPoint)
+        /// A Dock-swipe gesture event: its phase, and its velocity and
+        /// progress along the swipe.
+        case dockSwipe(phase: Int64, velocity: Double, progress: Double)
     }
 
     /// What to do about it.
@@ -71,6 +77,8 @@ final class KeyTap {
     struct State {
         static let tab: Int64 = 48
         static let escape: Int64 = 53
+        /// The gesture phase of a lift: the slide runs from here [F47].
+        static let swipeEnded: Int64 = 4
 
         var open = false
         var session = 0
@@ -112,6 +120,12 @@ final class KeyTap {
                 // Swallowed while the overlay is up, so the click never reaches
                 // the window underneath; the decision waits for the release.
                 return Output(swallow: open && geometry != nil)
+
+            case .dockSwipe(let phase, let velocity, let progress):
+                // Only watched, never swallowed: the swipe is the Dock's.
+                let value = velocity != 0 ? velocity : progress
+                guard phase == Self.swipeEnded, value != 0 else { return Output() }
+                return Output(action: .swiped(value))
 
             case .pointerUp(let point):
                 guard open, let geometry else { return Output() }
@@ -174,7 +188,7 @@ final class KeyTap {
         }
         guard let keys = CGEvent.tapCreate(
             tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
-            eventsOfInterest: mask([.keyDown, .flagsChanged]),
+            eventsOfInterest: mask([.keyDown, .flagsChanged]) | (1 << Self.dockControlEvent),
             callback: callback, userInfo: refcon)
         else { return false }
 
@@ -202,6 +216,16 @@ final class KeyTap {
         state.spaceKeys = spaceKeys
         lock.unlock()
     }
+
+    /// The undocumented event type of a Dock control event, and the fields
+    /// that make one a swipe [F46].
+    private static let dockControlEvent: UInt32 = 30
+    private static let eventTypeField = CGEventField(rawValue: 55)!
+    private static let gestureHIDType = CGEventField(rawValue: 110)!
+    private static let dockSwipe: Int64 = 23
+    private static let swipeProgress = CGEventField(rawValue: 124)!
+    private static let swipeVelocityX = CGEventField(rawValue: 129)!
+    private static let gesturePhase = CGEventField(rawValue: 132)!
 
     /// Marks a key scope posts itself, so its own tap lets it through.
     static let replayMark: Int64 = 0x73636f7065  // "scope"
@@ -255,6 +279,11 @@ final class KeyTap {
 
         let input: Input
         switch type {
+        case _ where type.rawValue == Self.dockControlEvent:
+            guard event.getIntegerValueField(Self.gestureHIDType) == Self.dockSwipe else { return pass }
+            input = .dockSwipe(phase: event.getIntegerValueField(Self.gesturePhase),
+                               velocity: event.getDoubleValueField(Self.swipeVelocityX),
+                               progress: event.getDoubleValueField(Self.swipeProgress))
         case .flagsChanged: input = .flagsChanged(event.flags)
         case .keyDown: input = .keyDown(code: event.getIntegerValueField(.keyboardEventKeycode), flags: event.flags)
         case .mouseMoved, .leftMouseDragged: input = .pointerMoved(event.location)

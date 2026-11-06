@@ -64,29 +64,6 @@ struct StampTable {
     }
 
     private(set) var stamps: [CGWindowID: Stamp] = [:]
-    /// A jump scope has started to a window on another Space and not yet seen
-    /// arrive [F44]. The Space change ends it too (`jumpEnded`): the wrong
-    /// window is only named before the switch, and the target's own report on
-    /// arrival can come in as off screen and never be seen here.
-    private(set) var jump: (pid: pid_t, window: CGWindowID)?
-
-    mutating func jumping(pid: pid_t, window: CGWindowID) { jump = (pid, window) }
-    mutating func jumpEnded() { jump = nil }
-
-    /// Whether a report is a use, given a jump under way. The jump activates
-    /// its app before the Space changes, and the app then names its window on
-    /// the Space being left, which was not used [F44]. Seeing the target ends
-    /// the jump, and so does another app's activation: the jump is over, or
-    /// was overtaken.
-    mutating func accepts(_ id: CGWindowID, pid: pid_t, as source: Source) -> Bool {
-        guard let jump else { return true }
-        if pid != jump.pid {
-            if source == .activated { self.jump = nil }
-            return true
-        }
-        if id == jump.window { self.jump = nil; return true }
-        return false
-    }
     /// The latest activation recorded: which app, and when.
     private(set) var lastActivation: (pid: pid_t, at: TimeInterval)?
 

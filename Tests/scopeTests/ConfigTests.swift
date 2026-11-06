@@ -8,7 +8,7 @@ struct ConfigTests {
     @Test("an empty file means every default")
     func defaults() {
         let (config, warnings) = Config.parse("")
-        #expect(config == Config(modifier: .cmd, mouse: true, refocus: true, spaces: true, trace: false))
+        #expect(config == Config(modifier: .cmd, mouse: true, refocus: true, spaces: true, animate: true, trace: false))
         #expect(warnings.isEmpty)
     }
 
@@ -19,9 +19,10 @@ struct ConfigTests {
             mouse = false
             refocus = no
             spaces = off
+            animate = no
             trace = on
             """)
-        #expect(config == Config(modifier: .alt, mouse: false, refocus: false, spaces: false, trace: true))
+        #expect(config == Config(modifier: .alt, mouse: false, refocus: false, spaces: false, animate: false, trace: true))
         #expect(warnings.isEmpty)
     }
 
@@ -79,6 +80,6 @@ struct ConfigTests {
 
     @Test("the effective settings print back as scope.conf lines")
     func lines() {
-        #expect(Config().lines == ["modifier = cmd", "mouse    = true", "refocus  = true", "spaces   = true", "trace    = false"])
+        #expect(Config().lines == ["modifier = cmd", "mouse    = true", "refocus  = true", "spaces   = true", "animate  = true", "trace    = false"])
     }
 }
