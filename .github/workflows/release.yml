@@ -72,11 +72,11 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           awk -v v="$version" '
-            $0 ~ "^### " v "( |$)" { on = 1; next }
-            on && /^##/ { exit }
+            $0 ~ "^## " v "( |$)" { on = 1; next }
+            on && /^## / { exit }
             on { print }
-          ' README.md > notes.md
-          [ -s notes.md ] || { echo "no Changelog entry for $version in README.md"; exit 1; }
+          ' CHANGELOG.md > notes.md
+          [ -s notes.md ] || { echo "no entry for $version in CHANGELOG.md"; exit 1; }
           cat >> notes.md <<'EOF'
 
           ### Install or upgrade

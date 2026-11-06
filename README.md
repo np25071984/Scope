@@ -186,41 +186,7 @@ The decision logic is covered by tests: `swift test`.
 
 ## Changelog
 
-### 2.4.0 — 2026-11-06
-
-scope now handles the Switch to Desktop N shortcuts that are on in System Settings, <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd> by default. Pressed while a three-finger swipe is still sliding, when macOS would ignore them, a shortcut goes straight to its Space, cancelling the swipe if that is where you started. The new `spaces` setting sets how they slide: `macos`, the default, keeps macOS's own slide; a number sets the slide's length in seconds, and 0 switches at once. A set length needs macOS 27; on earlier versions any length switches at once, and `scope status` and `scope reload` warn about it. scope's own slides use a synthetic trackpad swipe, the way [InstantSpaceSwitcher](https://github.com/jurplel/InstantSpaceSwitcher) does.
-
-Switching back to a Space after a link opened in a browser on another Space now focuses the window you last used there: macOS picks another app for the Space on arrival, and scope took that pick for your choice. scope now corrects such a pick as soon as it sees it, so the wrong app shows for a moment at most. A quick switch to another Space and back no longer lands in the app you had just ⌘Tabbed away from.
-
-Upgrade with `brew upgrade scope` and `brew services restart scope`, or run `install.sh` again; the Accessibility permission is kept. <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd> now go through scope, with nothing to set up.
-
-### 2.3.1 — 2026-11-02
-
-Switching back to a Space no longer focuses another app's window there when that app was the one you were using on the Space you left. Upgrade with `brew upgrade scope` and `brew services restart scope`, or run `install.sh` again; the Accessibility permission is kept.
-
-### 2.3.0 — 2026-10-31
-
-scope can be installed with Homebrew: `brew tap np25071984/scope https://github.com/np25071984/Scope`, `brew trust np25071984/scope`, `brew install scope`, `brew services start scope`. The formula installs the signed release, and its service runs a copy at a path that stays the same across versions, so `brew upgrade` keeps the Accessibility permission. `scope start`, `stop` and `restart` hand over to `brew services` when Homebrew installed scope, and `scope status` recognises Homebrew 7's service label, `sh.brew.scope`. When scope needs the permission, it names the file to allow: the copy the service runs.
-
-### 2.2.0 — 2026-10-31
-
-scope is now installed from a prebuilt release, with no sources needed: `curl -fsSL https://raw.githubusercontent.com/np25071984/Scope/main/install.sh | sh`. Running it again upgrades, and the permission is kept. Releases run on Apple Silicon and Intel, and are signed with scope's release certificate, which the installer checks. New `scope uninstall` removes scope without the sources. `./build.sh --install` is now for working on scope.
-
-Upgrading from a source build: run the installer, then turn on **scope** in Accessibility again, since a release is signed with a different certificate from your local builds.
-
-### 2.1.0 — 2026-10-31
-
-scope is now a single `scope` binary run as a launchd service instead of Scope.app. Install with `./build.sh --install`, which puts it in `~/.local/bin` by default (`--prefix` to change), starts it, and has launchd start it at login and restart it after a crash. The menu bar is gone: settings move from user defaults to `~/.config/scope/scope.conf`, and `scope start | stop | restart | reload | status | logs | list` replace the menu. `scope list` now asks the running service, so it shows the switcher's own order with each window's last use, and no longer needs the terminal to have Accessibility permission. The *Enabled* switch is gone (`scope stop`), and so are *Launch at Login* and *Hide Menu Bar Icon*. The service checks for Accessibility permission every 5 seconds instead of showing an alert. `build.sh` now also finds a self-signed certificate that is not marked as trusted, which it used to skip, falling back to ad-hoc signing.
-
-Upgrading from 2.0.x: quit Scope.app, delete `/Applications/Scope.app`, run `./build.sh --install`, and grant **scope** Accessibility permission. Settings are not carried over; set them again in `scope.conf`.
-
-### 2.0.1 — 2026-10-31
-
-Switching to a Space now focuses the window you last used there, even when the app you left also has a window on that Space. macOS focuses that app's window on arrival, and scope used to treat it as your choice and leave it. scope now recognises this case because no app was activated around the switch, and it ranks windows by their use from before the switch, since arriving stamps the carried-over window as used. A window you pick from the Dock, a notification or Mission Control is still left alone.
-
-### 2.0.0
-
-First native build, Scope.app. Versions 0.0.1 to 1.2.2 were a scripted predecessor; they remain in the git history.
+What changed in each release, back to the first: [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
