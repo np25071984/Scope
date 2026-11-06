@@ -64,7 +64,7 @@ The "Switch to Desktop N" shortcuts, <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</k
 
 scope uses the shortcuts that are on in System Settings → Keyboard → Keyboard Shortcuts → Mission Control, with whatever keys they are set to; run `scope reload` after changing them. scope's own slides work the way [InstantSpaceSwitcher](https://github.com/jurplel/InstantSpaceSwitcher)'s do, with a synthetic trackpad swipe. A slide of a set length needs macOS 27 or later; on earlier versions any length switches at once.
 
-Other ways of changing Space are left as macOS made them: three-finger swipes, Mission Control and Stage Manager work exactly as before. scope only steps in afterwards, to put keyboard focus on the window you last used there, as described in [Focus follows you across Spaces](#focus-follows-you-across-spaces).
+Other ways of changing Space don't go through scope: three-finger swipes, Mission Control and Stage Manager work exactly as before. scope only steps in afterwards, to put keyboard focus on the window you last used there, as described in [Focus follows you across Spaces](#focus-follows-you-across-spaces).
 
 ## Is scope for you?
 
