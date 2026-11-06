@@ -312,7 +312,8 @@ final class Switcher {
         if jump.passing.contains(space) { return true }
         arriving = nil
         guard space == jump.space else { return false }
-        if let id = jump.window, let window = lister.currentSpace().first(where: { $0.id == id }) {
+        // Focus after a switch is refocus's to decide, this one included.
+        if refocusEnabled, let id = jump.window, let window = lister.currentSpace().first(where: { $0.id == id }) {
             Log.trace("space: landed, focusing \(id)")
             refocusState.refocusing(window.pid, at: ProcessInfo.processInfo.systemUptime)
             Focus.window(window)

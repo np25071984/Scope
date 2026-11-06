@@ -44,18 +44,19 @@ To cycle windows of the current app only, use the native <kbd>⌘</kbd> <kbd>`</
 
 When you arrive on a Space, scope makes sure the keyboard goes to the window you last used there. You can type straight away, with no click first.
 
-It steps in in two cases, a moment after the switch settles:
+It steps in in three cases:
 
 - **Nothing on the new Space has focus.** macOS keeps the previous Space's app active when it has no window here — Finder after a click on the desktop is the usual case — so your window is in front but not focused.
 - **macOS focused a window you did not pick.** When the app you just left also has a window on the new Space, macOS hands focus to that window instead of the one you were working in.
+- **macOS picked another app for the Space.** When the app last in front on a Space has no window there — a link that opened in a browser on another Space is the usual case — macOS chooses an app for the Space on your way back, and not the one you were using. scope corrects it as soon as it sees the pick, so the wrong app shows for a moment at most.
 
 It leaves focus alone when you chose where to go: a window clicked in the Dock, a notification, Mission Control, or scope's own switcher. It also leaves it alone on a Space where it has not yet seen you use any window, such as right after it starts, rather than guess. Set `refocus = false` to turn it off.
 
 ### Jump to a Space
 
-The "Switch to Desktop N" shortcuts, <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd> by default, take you to that Space and focus the window you last used there. macOS's own switch picks an app for the Space when it gets there, often not the one you were using. `slide` sets how the switch looks: macOS's own slide, or a slide of the length you choose, or none at all with `slide = 0`. Pressed while a swipe is still sliding, the shortcut for the Space you are leaving cancels the swipe, and any other goes straight on to its Space.
+The "Switch to Desktop N" shortcuts, <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd> by default, take you to that Space, and with `refocus` on, to the window you last used there. `spaces` sets how the switch looks: macOS's own slide, a slide of the length you choose, or none at all with `spaces = 0`. Pressed while a swipe is still sliding, which macOS ignores, the shortcut for the Space you are leaving cancels the swipe, and any other goes straight on to its Space.
 
-scope uses the shortcuts that are on in System Settings → Keyboard → Keyboard Shortcuts → Mission Control, with whatever keys they are set to; run `scope reload` after changing them. Set `spaces = false` to leave them to macOS. The instant switch works the way [InstantSpaceSwitcher](https://github.com/jurplel/InstantSpaceSwitcher) does, with a synthetic trackpad swipe.
+scope uses the shortcuts that are on in System Settings → Keyboard → Keyboard Shortcuts → Mission Control, with whatever keys they are set to; run `scope reload` after changing them. The instant switch works the way [InstantSpaceSwitcher](https://github.com/jurplel/InstantSpaceSwitcher) does, with a synthetic trackpad swipe.
 
 ### The service
 
@@ -156,11 +157,12 @@ Installed with Homebrew, the service belongs to `brew services` (label `sh.brew.
 ```ini
 modifier = cmd     # cmd replaces the system switcher; alt (⌥Tab) runs alongside it; ctrl
 mouse    = true    # hover selects a row, click switches, click elsewhere dismisses
-refocus  = true    # after a Space switch, focus the window last used there when macOS
-                   # leaves nothing focused, or only carried the previous app over
-spaces   = true    # the Switch to Desktop N shortcuts switch at once, to the window last used there
-slide    = macos   # how they look: macos, or the slide's length in seconds, 0 for none
-                   # (about 0.05 to 0.9; timed on a 120Hz display, others may differ)
+refocus  = true    # after any Space switch, put focus on the window you last used there,
+                   # unless you picked a window to go to (Dock, notification, Mission Control)
+spaces   = macos   # how the Switch to Desktop N shortcuts (⌃1…⌃9) slide:
+                   #   macos  macOS's own slide
+                   #   0.4    a slide of that many seconds (about 0.05 to 0.9, timed
+                   #          on a 120Hz display); 0 for none
 trace    = false   # log every switcher decision
 ```
 
