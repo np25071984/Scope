@@ -24,7 +24,7 @@ scope does three things:
 
 Replaces the switcher with one that lists **windows** (not apps) from the **current Space only**, driven from the keyboard, with the pointer there when you would rather aim at the window you want than count Tabs to it.
 
-![The scope overlay open over a Terminal window, listing the windows of the current Space with the selected row highlighted](docs/screenshot.png)
+![The scope overlay open over a blurred browser window, listing the windows of the current Space with the selected row highlighted](docs/screenshot.png)
 
 | Shortcut | Action |
 |---|---|
