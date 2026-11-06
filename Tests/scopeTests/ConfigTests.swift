@@ -1,5 +1,6 @@
 // scope.conf.
 
+import Foundation
 import Testing
 @testable import scope
 
@@ -70,6 +71,19 @@ struct ConfigTests {
             #expect(config.spaces == .macos)
             #expect(warnings.count == 1)
         }
+    }
+
+    @Test("a slide length before macOS 27 is kept but warned about: it switches at once there")
+    func slideLengthBeforeTimed() {
+        let sequoia = OperatingSystemVersion(majorVersion: 15, minorVersion: 4, patchVersion: 0)
+        let tahoe = OperatingSystemVersion(majorVersion: 26, minorVersion: 1, patchVersion: 2)
+        let current = OperatingSystemVersion(majorVersion: Slide.timedFromMacOS, minorVersion: 2, patchVersion: 0)
+        #expect(Slide.seconds(0.4).unsupported(on: sequoia)
+                == "spaces = 0.4 needs macOS 27 or later to set the slide's length; on macOS 15.4 it switches at once")
+        #expect(Slide.seconds(0.4).unsupported(on: tahoe)?.hasSuffix("on macOS 26.1.2 it switches at once") == true)
+        #expect(Slide.seconds(0.4).unsupported(on: current) == nil)
+        #expect(Slide.seconds(0).unsupported(on: sequoia) == nil)
+        #expect(Slide.macos.unsupported(on: sequoia) == nil)
     }
 
     @Test("an unknown key is reported, not fatal")

@@ -37,6 +37,17 @@ enum Slide: Equatable {
     /// The longest slide asked for that scope accepts; `SlideSpeed` cannot
     /// make one much longer.
     static let maxSeconds = 1.0
+    /// The first macOS whose swipe events carry the fling that sets a
+    /// slide's length; before it, scope's slides are instant [F48].
+    static let timedFromMacOS = 27
+
+    /// What to tell someone whose `spaces` asks for a slide length this macOS
+    /// cannot give: the setting stays, and switches happen at once.
+    func unsupported(on macOS: OperatingSystemVersion) -> String? {
+        guard case .seconds(let s) = self, s > 0, macOS.majorVersion < Self.timedFromMacOS else { return nil }
+        let version = "\(macOS.majorVersion).\(macOS.minorVersion)" + (macOS.patchVersion > 0 ? ".\(macOS.patchVersion)" : "")
+        return "spaces = \(text) needs macOS \(Self.timedFromMacOS) or later to set the slide's length; on macOS \(version) it switches at once"
+    }
 
     var text: String {
         switch self {

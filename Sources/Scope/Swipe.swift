@@ -73,7 +73,7 @@ enum Swipe {
     /// skips the slide, and a multi-step switch multiplies it.
     private static let legacyVelocity = 2000.0
     /// macOS 27 ignores the plain event and needs the raw IOHID payload added.
-    private static let needsPayload = ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27
+    private static let needsPayload = ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= Slide.timedFromMacOS
 
     /// Posts `steps` swipes, each with `fling` on macOS 27. Returns false if
     /// an event could not be made.

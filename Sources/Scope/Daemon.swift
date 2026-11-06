@@ -87,6 +87,7 @@ final class Daemon {
 
     private func reload() {
         (config, warnings) = Config.load()
+        if let w = config.spaces.unsupported(on: ProcessInfo.processInfo.operatingSystemVersion) { warnings.append(w) }
         for w in warnings { Log.warn(w) }
         apply()
     }
