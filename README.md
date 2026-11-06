@@ -56,7 +56,7 @@ It leaves focus alone when you chose where to go: a window clicked in the Dock, 
 
 ### Jump to a Space
 
-The "Switch to Desktop N" shortcuts, <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd> by default, take you to that Space, and with `refocus` on, to the window you last used there. `spaces` sets how the switch looks: macOS's own slide, a slide of the length you choose, or none at all with `spaces = 0`. Pressed while a swipe is still sliding, which macOS ignores, the shortcut for the Space you are leaving cancels the swipe, and any other goes straight on to its Space.
+The "Switch to Desktop N" shortcuts, <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd> by default, take you to that Space, and with `refocus` on, to the window you last used there. `spaces` sets how these shortcuts switch: macOS's own slide, a slide of the length you choose, or none at all with `spaces = 0`. Pressed while a swipe is still sliding, when macOS would ignore them, a shortcut goes straight to its Space, cancelling the swipe if that is where you started.
 
 scope uses the shortcuts that are on in System Settings → Keyboard → Keyboard Shortcuts → Mission Control, with whatever keys they are set to; run `scope reload` after changing them. scope's own slides work the way [InstantSpaceSwitcher](https://github.com/jurplel/InstantSpaceSwitcher)'s do, with a synthetic trackpad swipe. A slide of a set length needs macOS 27 or later; on earlier versions any length switches at once.
 
@@ -182,7 +182,7 @@ The decision logic is covered by tests: `swift test`.
 
 ### 2.4.0 — 2026-11-06
 
-scope now handles the Switch to Desktop N shortcuts that are on in System Settings, <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd> by default. Pressed while a three-finger swipe is still sliding, which macOS ignores, they cancel the slide or go straight on to their Space. The new `spaces` setting sets how they slide: `macos`, the default, keeps macOS's own slide; a number sets the slide's length in seconds, and 0 switches at once. A set length needs macOS 27; on earlier versions any length switches at once, and `scope status` and `scope reload` warn about it. scope's own slides use a synthetic trackpad swipe, the way [InstantSpaceSwitcher](https://github.com/jurplel/InstantSpaceSwitcher) does.
+scope now handles the Switch to Desktop N shortcuts that are on in System Settings, <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd> by default. Pressed while a three-finger swipe is still sliding, when macOS would ignore them, a shortcut goes straight to its Space, cancelling the swipe if that is where you started. The new `spaces` setting sets how they slide: `macos`, the default, keeps macOS's own slide; a number sets the slide's length in seconds, and 0 switches at once. A set length needs macOS 27; on earlier versions any length switches at once, and `scope status` and `scope reload` warn about it. scope's own slides use a synthetic trackpad swipe, the way [InstantSpaceSwitcher](https://github.com/jurplel/InstantSpaceSwitcher) does.
 
 Switching back to a Space after a link opened in a browser on another Space now focuses the window you last used there: macOS picks another app for the Space on arrival, and scope took that pick for your choice. scope now corrects such a pick as soon as it sees it, so the wrong app shows for a moment at most. A quick switch to another Space and back no longer lands in the app you had just ⌘Tabbed away from.
 
