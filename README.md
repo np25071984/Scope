@@ -14,7 +14,11 @@ The Space shortcuts, <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd>
 
 ## What this does
 
-scope does three things: a window switcher for the current Space, focus that follows you when you change Spaces, and Space shortcuts that still work while a swipe is sliding, with a slide as long as you choose.
+scope does three things:
+
+- [A window switcher](#window-switcher) for the current Space.
+- [Focus that follows you](#focus-follows-you-across-spaces) when you change Spaces.
+- [Space shortcuts](#jump-to-a-space) that still work while a swipe is sliding, with a slide as long as you choose.
 
 ### Window switcher
 
