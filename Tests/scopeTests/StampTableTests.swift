@@ -83,6 +83,38 @@ struct RecordingTests {
         #expect(table.lastUsed(1) == 30)
     }
 
+    @Test("during a jump, the app naming its window on the Space being left is not a use")
+    func jumpIgnoresOtherWindow() {
+        var table = StampTable()
+        table.jumping(pid: 1, window: 20)
+        let accepted1 = table.accepts(10, pid: 1, as: .activated)
+        #expect(!accepted1)
+        #expect(table.jump != nil)
+    }
+
+    @Test("the jump ends when its window is seen, and the app's reports count again")
+    func jumpEndsOnTarget() {
+        var table = StampTable()
+        table.jumping(pid: 1, window: 20)
+        let accepted2 = table.accepts(20, pid: 1, as: .focusChanged)
+        #expect(accepted2)
+        #expect(table.jump == nil)
+        let accepted3 = table.accepts(10, pid: 1, as: .activated)
+        #expect(accepted3)
+    }
+
+    @Test("another app's activation ends the jump: it was overtaken; other apps' reports always count")
+    func jumpEndsOnOtherApp() {
+        var table = StampTable()
+        table.jumping(pid: 1, window: 20)
+        let accepted4 = table.accepts(30, pid: 2, as: .deactivated)
+        #expect(accepted4)
+        #expect(table.jump != nil)
+        let accepted5 = table.accepts(30, pid: 2, as: .activated)
+        #expect(accepted5)
+        #expect(table.jump == nil)
+    }
+
     @Test("uses further apart than the history window each become the previous one")
     func previousAdvances() {
         var table = StampTable()

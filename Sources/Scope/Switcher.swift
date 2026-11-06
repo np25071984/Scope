@@ -40,8 +40,8 @@ final class Switcher {
         return true
     }
 
-    func configure(modifier: CGEventFlags, mouse: Bool) {
-        tap.configure(modifier: modifier, mouse: mouse)
+    func configure(modifier: CGEventFlags, mouse: Bool, spaceKeys: [SpaceShortcut]) {
+        tap.configure(modifier: modifier, mouse: mouse, spaceKeys: spaceKeys)
     }
 
     // MARK: The list
@@ -77,6 +77,7 @@ final class Switcher {
         case .commit: commit()
         case .pick(let row): select(row); commit()
         case .cancel: cancel()
+        case .space(let number, let code, let flags): jump(to: number, code: code, flags: flags)
         }
     }
 
@@ -185,6 +186,34 @@ final class Switcher {
         return NSScreen.screens.first { $0.frame.contains(center) } ?? NSScreen.main ?? NSScreen.screens[0]
     }
 
+    // MARK: Jumping to a Space
+
+    /// ⌃N: focus the window last used on Space N, and macOS follows it there.
+    /// Anything else hands the key back to macOS.
+    private func jump(to number: Int, code: Int64, flags: CGEventFlags) {
+        let replay = {
+            Log.trace("space \(number): left to macOS")
+            KeyTap.replay(code: code, flags: flags)
+        }
+        guard !overlay.isVisible, let current = SkyLight.activeSpace() else { return replay() }
+        let uses = recency.lastUses()
+        let spaces = SkyLight.spaces(of: Array(uses.keys))
+        let candidates = uses.map { id, use in
+            SpaceJump.Candidate(id: id, pid: use.pid, spaces: spaces[id] ?? [], lastUsed: use.at)
+        }
+        let outcome = SpaceJump.decide(
+            number: number, desktops: SkyLight.desktops(withSpace: current), current: current,
+            candidates: candidates)
+        guard case .jump(let id) = outcome, let pid = uses[id]?.pid else { return replay() }
+        Log.trace("space \(number): window \(id) of pid \(pid)")
+        recency.jumping(pid: pid, window: id)
+        Focus.jump(pid: pid, window: id) { [recency] in
+            recency.jumpEnded()
+            Log.trace("space \(number): window \(id) not reachable")
+            KeyTap.replay(code: code, flags: flags)
+        }
+    }
+
     // MARK: Keeping focus on the Space you arrive in
     //
     // The decision is `Refocus`; this is its timer and its side effects.
@@ -205,6 +234,8 @@ final class Switcher {
     }
 
     private func spaceChanged() {
+        // A jump's app names the wrong window only before the switch [F44].
+        recency.jumpEnded()
         guard refocusEnabled else { return }
         let space = SkyLight.activeSpace()
         Log.trace("refocus: arrived on Space \(space.map(String.init) ?? "?")")

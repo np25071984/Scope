@@ -4,6 +4,7 @@
 //   modifier = cmd     # cmd | alt | ctrl
 //   mouse    = true
 //   refocus  = true
+//   spaces   = true
 //   trace    = false
 //
 // Read at startup and on `scope reload` (SIGHUP). Scope never writes it. A
@@ -29,6 +30,7 @@ struct Config: Equatable {
     var modifier = Modifier.cmd
     var mouse = true
     var refocus = true
+    var spaces = true
     var trace = false
 
     /// `$XDG_CONFIG_HOME/scope/scope.conf`, else `~/.config/scope/scope.conf`.
@@ -85,6 +87,7 @@ struct Config: Equatable {
                 }
             case "mouse": if let b = bool() { config.mouse = b }
             case "refocus": if let b = bool() { config.refocus = b }
+            case "spaces": if let b = bool() { config.spaces = b }
             case "trace": if let b = bool() { config.trace = b }
             default: warnings.append("\(at): unknown setting `\(key)`")
             }
@@ -98,6 +101,7 @@ struct Config: Equatable {
             "modifier = \(modifier.rawValue)",
             "mouse    = \(mouse)",
             "refocus  = \(refocus)",
+            "spaces   = \(spaces)",
             "trace    = \(trace)",
         ]
     }

@@ -27,6 +27,12 @@ The decision logic is specified by tests rather than prose: the key tap's state 
 - A window you chose (Dock, notification, Mission Control, scope itself) is left alone.
 - If scope has never seen a window on this Space used, leave focus alone.
 
+**Jumping to a Space**
+
+- The "Switch to Desktop N" shortcuts that are on in System Settings (⌃1…⌃9 by default) focus the window last used on Desktop N, and the Space follows it, so macOS never picks an app there.
+- On a Space with no recorded use, or the one you are on, or when the window cannot be reached, the key goes to macOS as if scope were not there.
+- `spaces = false` leaves the shortcuts to macOS.
+
 **Service**
 
 - One signed binary, `scope`, run by launchd as a per-user agent: starts at login, restarted after a crash, not after a clean stop.
@@ -76,8 +82,14 @@ Re-check the *believed* ones before relying on them, and all of them after a maj
 - **F19.** Switching Spaces does not reliably move keyboard focus. The app active on the Space you left stays active if it has no window on the new one (Finder after a click on the desktop is the usual case): your last window is in front, but typing goes nowhere. If that app *does* have a window on the new Space, macOS focuses it, which looks exactly like a choice. *(observed)*
 - **F20.** `activeSpaceDidChangeNotification` is posted after the switch animation. The switch itself fires activation, deactivation and focus-change notifications, so it generates "use" of the windows it lands on. *(observed)*
 - **F21.** Choosing a window from the Dock, a notification or Mission Control activates its app (`didActivateApplicationNotification`). macOS carrying the active app over to a window on the new Space does not. *(observed)*
-- **F37.** macOS remembers each Space's front app, and an app made frontmost while a Space is showing becomes that Space's front app even if its window is on another Space (a link clicked in one app opening in a browser on another Space). Back on the first Space, if that app has no window there, macOS picks another app as part of the switch: WindowServer changes the current Space, then makes the app front. Its pick is not the app used last there: it skips the app that was front when the other took over and goes to the one front before that, or to Finder when that one has no window there either. A choice that switches Spaces makes its app front while the Space being left is still showing, and the switch follows. Either way, scope receives `didActivateApplicationNotification` and `activeSpaceDidChangeNotification` in either order, usually the activation first, so their order does not tell the two apart; the active Space **[F22]** read in the activation handler does: a choice is made on the Space showing, macOS's pick on one scope has not yet been told of. That includes a Space passed through on the way to another. *(observed: the pick in six runs, the notification order in every switch of one traced session, the Space at activation from the WindowServer log. Not tried with Reduce motion, where the switch may follow a choice too closely for this)*
+- **F37.** macOS remembers each Space's front app, and an app made frontmost while a Space is showing becomes that Space's front app even if its window is on another Space (a link clicked in one app opening in a browser on another Space). Back on the first Space, if that app has no window there, macOS picks another app as part of the switch: WindowServer changes the current Space, then makes the app front. Its pick is not the app used last there: it skips the app that was front when the other took over and goes to the one front before that, or to Finder when that one has no window there either. A choice that switches Spaces makes its app front while the Space being left is still showing, and the switch follows. Either way, scope receives `didActivateApplicationNotification` and `activeSpaceDidChangeNotification` in either order, usually the activation first, so their order does not tell the two apart; the active Space **[F22]** read in the activation handler does: a choice is made on the Space showing, macOS's pick on one scope has not yet been told of. That includes a Space passed through on the way to another. *(observed: the pick in six runs, the notification order in every switch of one traced session, the Space at activation from the WindowServer log. With Reduce motion on, a choice still came about 0.3s before the switch)*
 - **F38.** Switching apps posts `didActivateApplicationNotification` for one and `didDeactivateApplicationNotification` for the other, in either order, often within the same millisecond. *(observed)*
+- **F39.** `SLSCopyManagedDisplaySpaces(SLSMainConnectionID())` lists each display's Spaces in Mission Control order, with `id64` and `type` (0 an ordinary desktop, 4 a full-screen app), and `SLSCopySpacesForWindows(connection, 0x7, [id])` the Spaces a window is on, for windows on any Space; neither needs a permission or SIP turned off. A window that is gone is on none. *(observed)*
+- **F40.** An app's `kAXWindowsAttribute` lists only its windows on the current Space. A window on another Space is reached through the private `_AXUIElementCreateWithRemoteToken` with a 20-byte token: pid, 0, `0x636f636f`, then an element id, tried upward from 0; an app's windows have come out between 40 and 80. Several elements map to one window id through `_AXUIElementGetWindow`, and only the one with role `AXWindow` is the window: raising another does nothing. *(observed)*
+- **F41.** `_SLPSSetFrontProcessWithOptions` with a window on another Space never switches Spaces. Followed by `AXRaise` on that window's element, it switches to the window's Space with the window focused, for apps with windows on several Spaces too, but WindowServer defers the switch by about 100ms, so the whole jump takes about 420ms against about 280ms for ⌃N. Setting `kAXMainAttribute` on the window and then `kAXFrontmostAttribute` on its app starts the switch within about 30ms, but the app then reorders all its windows, and when it has one on another Space a second switch is scheduled for that one, which sometimes wins: about a quarter of the time, unpredictably, even for the app's most recently used window. Making the app frontmost first loses most of the time. *(observed: Firefox, Chrome, Finder, Terminal, Telegram, VS Code, into and out of a full-screen Space, with and without Reduce motion)*
+- **F42.** The "Switch to Desktop N" shortcuts are symbolic hotkeys 118 to 126 in `~/Library/Preferences/com.apple.symbolichotkeys.plist`: `enabled`, and `value.parameters` = [character, key code, modifier flags]. They are off unless turned on, and N counts ordinary desktops only. A synthesized key event posted at the HID tap triggers them like a real one. *(observed)*
+- **F44.** An app activated by a jump to its window on another Space is activated before the switch, and if it has a window on the Space being left, it names that window as focused, which is on screen there; its focus-changed notification for the target follows on arrival. *(observed: Firefox)*
+- **F43.** `CGWindowListCopyWindowInfo` without `optionOnScreenOnly` lists windows from every Space in one order, which is not each Space's own stacking order: its first window on a Space was not the one on top there on arrival in two of four tries. *(observed)*
 - **F22.** The active Space comes from the private `SLSGetActiveSpace(SLSMainConnectionID())` (older name: `CGS…`). *(observed)* Private symbols can disappear between macOS releases. *(believed)*
 - **F36.** An app activated on arrival at a Space, or by focusing one of its windows there, can for a moment answer `kAXFocusedWindowAttribute` with the window it had focused on the Space it left, which is off screen; its focus-changed notification follows with the right one. *(observed)*
 
@@ -114,6 +126,7 @@ Re-check the *believed* ones before relying on them, and all of them after a maj
 **Untested:**
 
 - **Several displays.** By default each display has its own Spaces, and the window list includes the visible Space of *every* display **[F6]**, so ⌘Tab lists windows from all displays at once. The active Space **[F22]** is the focused display's only, so tab-group matching and refocus consider only that display's Space, and the overlay opens on the display of the first window in the list. None of this has been tried with a second display, or with "Displays have separate Spaces" turned off.
+- **Jumping to a Space** with a second display.
 - **Stage Manager.** Windows it has set aside may or may not count as on screen.
 - **Several users logged in at once** (fast user switching): each gets their own agent and socket, which should be enough, but has not been tried.
 - **The `brew services` handoff**: there is no Homebrew formula yet.
@@ -244,6 +257,12 @@ The decision is `Refocus`, a value with no clock or Accessibility: when to overr
 
 Wiring, in `Switcher`: `didActivateApplicationNotification` feeds `Refocus.activated`, with the active Space **[F22]**. If that makes it macOS's pick on arrival **[F37]**, `decidePick` runs at once, ranking by use from `Refocus.switchMargin` before it, so the pick is not left in front for the settle. The two notifications come in either order, so the Space change does the same when no choice led to the switch and no pick was seen ahead of it. `activeSpaceDidChangeNotification` (if `refocus` is on) feeds `Refocus.spaceChanged` and (re)starts a `Refocus.settle` (0.3s) timer, so the switch settles first. When it fires, unless the overlay is up: rank this Space's windows before `Refocus.cutoff`, ask `decide` with the live focused window and the frontmost app, and on `.focus` record `refocusing` and call `Focus.window`.
 
+### Jumping to a Space
+
+The decision is `SpaceJump.decide`, and the shortcuts are `SpaceKeys`, both pure. **Specified by** `Tests/scopeTests/SpacesTests.swift` and the space shortcut cases in `KeyTapTests.swift`.
+
+Wiring: the daemon reads the shortcuts **[F42]** on start and on every reload, and hands them to the tap; `spaces = false` hands it none. The tap swallows a matching key and posts `.space` with the key. On main, `Switcher.jump`: the windows with stamps, the Spaces each is on now and the display's desktops **[F39]**, then `decide`. On `.jump`, `Focus.jump` finds the window's element **[F40]**, then on the focus queue does the private focus call and raises the element **[F41]**. Anything else, or a window that cannot be reached, replays the key: posted again, marked with `KeyTap.replayMark` in `eventSourceUserData` so the tap lets it through, for macOS to handle. The activation happens on the Space being left, so refocus takes it for a choice **[F37]**. Until the target is seen focused or the Space changes, `Recency` does not stamp another window of its app **[F44]** (`StampTable.accepts`, specified in `StampTableTests.swift`).
+
 ## Focus
 
 On the `scope.focus` queue, because the target app may be the slow one:
@@ -283,6 +302,8 @@ All in one file, looked up with `dlsym` (the SkyLight framework handle, then `RT
 | `_AXUIElementGetWindow` | AX element → window id | none |
 | `_SLPSSetFrontProcessWithOptions`, `SLPSPostEventRecordTo`, `GetProcessForPID` | single-window focus | activate the app |
 | `SLSMainConnectionID`/`CGSMainConnectionID`, `SLSGetActiveSpace`/`CGSGetActiveSpace` | the active Space | tab groups match by pid and frame only |
+| `SLSCopyManagedDisplaySpaces`, `SLSCopySpacesForWindows` (or `CGS…`) | the desktops in order, and each window's Space **[F39]** | ⌃N goes to macOS |
+| `_AXUIElementCreateWithRemoteToken` | windows on other Spaces **[F40]** | ⌃N goes to macOS |
 
 ## Service
 

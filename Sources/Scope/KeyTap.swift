@@ -25,6 +25,9 @@ final class KeyTap {
         case commit
         case pick(row: Int)
         case cancel
+        /// A "Switch to Desktop N" shortcut, swallowed. `code` and `flags` are
+        /// the key, to hand back to macOS if scope does not jump.
+        case space(number: Int, code: Int64, flags: CGEventFlags)
     }
 
     struct Geometry: Equatable {
@@ -74,6 +77,8 @@ final class KeyTap {
         var modifier: CGEventFlags = .maskCommand
         var mouse = true
         var geometry: Geometry?
+        /// The Space shortcuts to take over; none when that is turned off.
+        var spaceKeys: [SpaceShortcut] = []
 
         mutating func handle(_ input: Input) -> Output {
             switch input {
@@ -89,6 +94,9 @@ final class KeyTap {
                     if code == Self.tab { return Output(swallow: true, action: .step(delta: delta)) }
                     if code == Self.escape { return close(.cancel, swallow: true) }
                     return Output()
+                }
+                if let number = SpaceKeys.match(code: code, flags: flags, in: spaceKeys) {
+                    return Output(swallow: true, action: .space(number: number, code: code, flags: flags))
                 }
                 guard code == Self.tab, flags.contains(modifier) else { return Output() }
                 open = true
@@ -187,11 +195,27 @@ final class KeyTap {
         return true
     }
 
-    func configure(modifier: CGEventFlags, mouse: Bool) {
+    func configure(modifier: CGEventFlags, mouse: Bool, spaceKeys: [SpaceShortcut]) {
         lock.lock()
         state.modifier = modifier
         state.mouse = mouse
+        state.spaceKeys = spaceKeys
         lock.unlock()
+    }
+
+    /// Marks a key scope posts itself, so its own tap lets it through.
+    static let replayMark: Int64 = 0x73636f7065  // "scope"
+
+    /// Hands a swallowed key back to macOS: posts it again, marked, where the
+    /// system's shortcuts see it [F42].
+    static func replay(code: Int64, flags: CGEventFlags) {
+        for down in [true, false] {
+            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(code), keyDown: down)
+            else { continue }
+            event.flags = flags
+            event.setIntegerValueField(.eventSourceUserData, value: replayMark)
+            event.post(tap: .cghidEventTap)
+        }
     }
 
     /// The overlay is on screen with these rows; pointer events can be mapped.
@@ -226,6 +250,8 @@ final class KeyTap {
             if pointer, let mouseTap { CGEvent.tapEnable(tap: mouseTap, enable: true) }
             return pass
         }
+
+        if event.getIntegerValueField(.eventSourceUserData) == Self.replayMark { return pass }
 
         let input: Input
         switch type {

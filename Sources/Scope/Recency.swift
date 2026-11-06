@@ -101,8 +101,13 @@ final class Recency {
         let frame = AX.frame(window), space = SkyLight.activeSpace()
 
         lock.lock()
-        table.record(id, at: now, pid: pid, frame: frame, space: space, as: why)
+        let accepted = table.accepts(id, pid: pid, as: why)
+        if accepted { table.record(id, at: now, pid: pid, frame: frame, space: space, as: why) }
         lock.unlock()
+        guard accepted else {
+            Log.trace("\(why.rawValue): window \(id) of pid \(pid) named during a jump; not stamped")
+            return
+        }
         Log.trace("\(why.rawValue): stamped window \(id) of pid \(pid)")
     }
 
@@ -113,6 +118,26 @@ final class Recency {
         lock.lock()
         defer { lock.unlock() }
         return table.lastUsed(id, before: cutoff)
+    }
+
+    /// scope is jumping to `window`; see `StampTable.accepts`.
+    func jumping(pid: pid_t, window: CGWindowID) {
+        lock.lock()
+        table.jumping(pid: pid, window: window)
+        lock.unlock()
+    }
+
+    func jumpEnded() {
+        lock.lock()
+        table.jumpEnded()
+        lock.unlock()
+    }
+
+    /// Every window seen used: its app, and when, by its latest stamp.
+    func lastUses() -> [CGWindowID: (pid: pid_t, at: TimeInterval)] {
+        lock.lock()
+        defer { lock.unlock() }
+        return table.stamps.mapValues { ($0.pid, $0.at) }
     }
 
     /// `windows` most recently used first; see `StampTable.rank`.

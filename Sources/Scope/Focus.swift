@@ -24,4 +24,22 @@ enum Focus {
             AXUIElementPerformAction(window.element, kAXRaiseAction as CFString)
         }
     }
+
+    /// Jumps to a window that may be on another Space: the private focus
+    /// call, then a raise of the window's element, which is what makes the
+    /// Space follow. Making the app frontmost through Accessibility switches
+    /// sooner, but the app then brings its other windows forward too, and a
+    /// switch to one of those on another Space can win [F41]. `failed` runs on
+    /// the main thread if the window cannot be reached.
+    static func jump(pid: pid_t, window id: CGWindowID, failed: @escaping () -> Void) {
+        queue.async {
+            guard let element = RemoteAX.window(pid: pid, id: id),
+                  SkyLight.focus(pid: pid, window: id),
+                  AXUIElementPerformAction(element, kAXRaiseAction as CFString) == .success
+            else {
+                DispatchQueue.main.async(execute: failed)
+                return
+            }
+        }
+    }
 }

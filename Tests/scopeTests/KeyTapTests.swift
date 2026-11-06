@@ -24,6 +24,33 @@ private func opened(mouse: Bool = true) -> KeyTap.State {
     return state
 }
 
+@Suite("Space shortcuts in the tap")
+struct SpaceKeyTapTests {
+    private let two = SpaceShortcut(code: 19, modifiers: .maskControl, number: 2)
+
+    @Test("a Space shortcut is swallowed and handed on with the key, to give back if scope does not jump")
+    func swallowsShortcut() {
+        var state = KeyTap.State()
+        state.spaceKeys = [two]
+        let out = state.handle(.keyDown(code: 19, flags: .maskControl))
+        #expect(out == .init(swallow: true, action: .space(number: 2, code: 19, flags: .maskControl)))
+        #expect(!state.open)
+    }
+
+    @Test("with the setting off there are no shortcuts, and ⌃N passes")
+    func offPasses() {
+        var state = KeyTap.State()
+        #expect(state.handle(.keyDown(code: 19, flags: .maskControl)) == .init())
+    }
+
+    @Test("while the switcher is open, a Space shortcut passes like any other key")
+    func openPasses() {
+        var state = opened()
+        state.spaceKeys = [two]
+        #expect(state.handle(.keyDown(code: 19, flags: .maskControl)) == .init())
+    }
+}
+
 @Suite("Opening")
 struct OpeningTests {
     @Test("modifier + Tab opens forward, swallowed, with a new session")

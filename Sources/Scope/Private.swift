@@ -48,6 +48,47 @@ enum SkyLight {
     private static let activeSpaceID = symbol(
         ["SLSGetActiveSpace", "CGSGetActiveSpace"], as: ActiveSpace.self)
 
+    private typealias CopyDisplaySpaces = @convention(c) (Int32) -> Unmanaged<CFArray>?
+    private typealias CopySpacesForWindows = @convention(c) (Int32, Int32, CFArray) -> Unmanaged<CFArray>?
+
+    private static let copyDisplaySpaces = symbol(
+        ["SLSCopyManagedDisplaySpaces", "CGSCopyManagedDisplaySpaces"], as: CopyDisplaySpaces.self)
+    private static let copySpacesForWindows = symbol(
+        ["SLSCopySpacesForWindows", "CGSCopySpacesForWindows"], as: CopySpacesForWindows.self)
+
+    /// The Space type of an ordinary desktop; full-screen apps have their own.
+    private static let desktopType = 0
+    /// Every Space a window belongs to: current, other and user Spaces.
+    private static let allSpaces: Int32 = 0x7
+
+    /// The desktops of the display showing `space`, in order, as "Desktop N"
+    /// counts them [F39]. Empty if the call is gone.
+    static func desktops(withSpace space: UInt64) -> [UInt64] {
+        guard let mainConnection, let copyDisplaySpaces,
+              let displays = copyDisplaySpaces(mainConnection())?.takeRetainedValue() as? [[String: Any]]
+        else { return [] }
+        for display in displays {
+            let spaces = display["Spaces"] as? [[String: Any]] ?? []
+            guard spaces.contains(where: { ($0["id64"] as? UInt64) == space }) else { continue }
+            return spaces.compactMap { s in
+                (s["type"] as? Int) == desktopType ? s["id64"] as? UInt64 : nil
+            }
+        }
+        return []
+    }
+
+    /// The Spaces each window is on now. A window that is gone is on none [F39].
+    static func spaces(of windows: [CGWindowID]) -> [CGWindowID: [UInt64]] {
+        guard let mainConnection, let copySpacesForWindows else { return [:] }
+        let connection = mainConnection()
+        var out: [CGWindowID: [UInt64]] = [:]
+        for id in windows {
+            let list = [NSNumber(value: id)] as CFArray
+            out[id] = copySpacesForWindows(connection, allSpaces, list)?.takeRetainedValue() as? [UInt64] ?? []
+        }
+        return out
+    }
+
     static var canFocusSingleWindow: Bool {
         setFrontProcess != nil && postEventRecord != nil && processForPID != nil
     }
@@ -87,5 +128,50 @@ enum SkyLight {
         bytes[0x08] = 0x02
         _ = postEventRecord(&psn, &bytes)
         return true
+    }
+}
+
+/// Windows on other Spaces, which an app's Accessibility window list leaves
+/// out [F40].
+enum RemoteAX {
+    private typealias CreateWithRemoteToken = @convention(c) (CFData) -> Unmanaged<AXUIElement>?
+    private static let createWithRemoteToken: CreateWithRemoteToken? = dlsym(
+        UnsafeMutableRawPointer(bitPattern: -2), "_AXUIElementCreateWithRemoteToken"
+    ).map { unsafeBitCast($0, to: CreateWithRemoteToken.self) }
+
+    /// The token's tag, "coco", that marks it as naming a Cocoa element.
+    private static let tokenTag: Int32 = 0x636f636f
+    /// How many element ids to try. An app's windows have come out well under
+    /// a hundred; the margin is for an app that has made many elements.
+    static let maxElementID: UInt64 = 2000
+
+    /// The window element for `window` of `pid`, wherever the window is.
+    /// Several elements map to one window id, and only the one whose role is
+    /// window can be raised or made main [F40]. Nil if the call is gone, the
+    /// app does not answer, or no element matches.
+    static func window(pid: pid_t, id window: CGWindowID) -> AXUIElement? {
+        guard let createWithRemoteToken else { return nil }
+        for elementID in 0..<maxElementID {
+            var token = Data(count: 20)
+            token.withUnsafeMutableBytes { raw in
+                raw.storeBytes(of: pid, toByteOffset: 0, as: Int32.self)
+                raw.storeBytes(of: 0, toByteOffset: 4, as: Int32.self)
+                raw.storeBytes(of: tokenTag, toByteOffset: 8, as: Int32.self)
+                raw.storeBytes(of: elementID, toByteOffset: 12, as: UInt64.self)
+            }
+            guard let element = createWithRemoteToken(token as CFData)?.takeRetainedValue() else { continue }
+            var id: CGWindowID = 0
+            switch _AXUIElementGetWindow(element, &id) {
+            case .success:
+                guard id == window else { continue }
+                if AX.attribute(element, kAXRoleAttribute, as: String.self) == kAXWindowRole { return element }
+            case .cannotComplete:
+                // The app is not answering; asking two thousand times will not help.
+                return nil
+            default:
+                continue
+            }
+        }
+        return nil
     }
 }

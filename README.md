@@ -51,6 +51,12 @@ It steps in in two cases, a moment after the switch settles:
 
 It leaves focus alone when you chose where to go: a window clicked in the Dock, a notification, Mission Control, or scope's own switcher. It also leaves it alone on a Space where it has not yet seen you use any window, such as right after it starts, rather than guess. Set `refocus = false` to turn it off.
 
+### Jump to a Space
+
+The "Switch to Desktop N" shortcuts, <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd> by default, take you to the window you last used on that Space, focused. macOS's own switch picks an app for the Space when it gets there, often not the one you were using. scope instead focuses your window and lets the Space follow it.
+
+scope uses the shortcuts that are on in System Settings → Keyboard → Keyboard Shortcuts → Mission Control, with whatever keys they are set to; run `scope reload` after changing them. On a Space where it has not yet seen you use a window, the key does what it always did. Set `spaces = false` to leave the shortcuts to macOS.
+
 ### The service
 
 scope is a single binary run as a launchd service. It has no app bundle, Dock icon or menu bar: you control it with `scope start | stop | status | …` and configure it in a text file.
@@ -152,6 +158,7 @@ modifier = cmd     # cmd replaces the system switcher; alt (⌥Tab) runs alongsi
 mouse    = true    # hover selects a row, click switches, click elsewhere dismisses
 refocus  = true    # after a Space switch, focus the window last used there when macOS
                    # leaves nothing focused, or only carried the previous app over
+spaces   = true    # the Switch to Desktop N shortcuts go to the window last used there
 trace    = false   # log every switcher decision
 ```
 

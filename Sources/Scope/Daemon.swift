@@ -94,7 +94,11 @@ final class Daemon {
     private func apply() {
         Log.tracing = config.trace
         guard running else { return }
-        switcher.configure(modifier: config.modifier.flags, mouse: config.mouse)
+        // Re-read on every reload: `scope reload` after changing the shortcuts
+        // in System Settings picks them up.
+        let spaceKeys = config.spaces ? SpaceKeys.load() : []
+        switcher.configure(modifier: config.modifier.flags, mouse: config.mouse, spaceKeys: spaceKeys)
+        if config.spaces { Log.trace("space shortcuts: \(spaceKeys.map { "\($0.number)" }.joined(separator: " "))") }
         switcher.refocusEnabled = config.refocus
     }
 
