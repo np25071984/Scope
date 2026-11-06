@@ -85,7 +85,7 @@
   .card p { margin: 0; color: var(--muted); }
 
   .facts { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
-  .facts li { padding-left: 1.4em; position: relative; }
+  .facts li { padding-left: 1.4em; position: relative; text-wrap: pretty; }
   .facts li::before { content: "–"; position: absolute; left: 0; color: var(--muted); }
 
   .cmd {
@@ -124,6 +124,15 @@
   <figure class="shot">
     <img src="screenshot.png" width="1600" height="1034" alt="The scope overlay open over a blurred browser window, listing the windows of the current Space with the selected row highlighted">
   </figure>
+
+  <section aria-labelledby="why">
+    <h2 id="why">Why scope</h2>
+    <ul class="facts">
+      <li><kbd>⌘</kbd> <kbd>Tab</kbd> switches apps across all Spaces, so reaching for the window in front of you can pull you into another Space.</li>
+      <li>Arrive on a Space and the window you were using is in front, but what you type goes nowhere until you click it.</li>
+      <li>The Space shortcuts do nothing while a swipe is still sliding, and their slide always takes the same time.</li>
+    </ul>
+  </section>
 
   <section aria-labelledby="what">
     <h2 id="what">What it does</h2>
