@@ -1,9 +1,9 @@
 class Scope < Formula
   desc "Window switcher for the current macOS Space, with focus that follows you"
   homepage "https://github.com/np25071984/Scope"
-  url "https://github.com/np25071984/Scope/releases/download/v2.3.1/scope-macos.tar.gz"
-  version "2.3.1"
-  sha256 "2ee585f5098602032304d07fed21664271d6c07005bda0265b693415f09effe0"
+  url "https://github.com/np25071984/Scope/releases/download/v2.4.0/scope-macos.tar.gz"
+  version "2.4.0"
+  sha256 "455af76bb8cfece7eb1a259486e6da302482cc6b857e9bfec6d9d8cb31f76d5c"
   license "MIT"
 
   depends_on :macos
