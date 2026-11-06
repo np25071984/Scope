@@ -2,15 +2,13 @@
 
 Keyboard-first window switching on macOS, scoped to the current Space, with keyboard focus that follows you between Spaces. Its Space shortcuts switch instantly, or with a slide as long as you like.
 
-## The problem
+## What macOS gets wrong
 
-macOS <kbd>⌘</kbd> <kbd>Tab</kbd> switches *applications* across *all* Spaces. If you organise your work into Spaces, that defeats the purpose — you reach for the other window in front of you and get yanked into a different Space instead.
+**<kbd>⌘</kbd> <kbd>Tab</kbd> leaves the Space.** macOS <kbd>⌘</kbd> <kbd>Tab</kbd> switches *applications* across *all* Spaces. If you organise your work into Spaces, that defeats the purpose — you reach for the other window in front of you and get yanked into a different Space instead. The closest native tool is Mission Control (three-finger swipe up, or <kbd>⌃</kbd> <kbd>↑</kbd>). It does show the current Space's windows, but you pick one by pointing at it. If you would rather not reach for gestures or the pointer to change windows, there is no native way to cycle the windows in this Space from the keyboard.
 
-The closest native tool is Mission Control (three-finger swipe up, or <kbd>⌃</kbd> <kbd>↑</kbd>). It does show the current Space's windows, but you pick one by pointing at it. If you would rather not reach for gestures or the pointer to change windows, there is no native way to cycle the windows in this Space from the keyboard.
+**The keyboard stays behind.** Arrive on a Space and the window you were working in is in front, yet what you type goes nowhere, or into a window you did not pick, because macOS kept the previous Space's app active. You have to click the window first.
 
-Switching Spaces has a second problem: the keyboard does not always come with you. Arrive on a Space and the window you were working in is in front, yet what you type goes nowhere, or into a window you did not pick, because macOS kept the previous Space's app active. You have to click the window first.
-
-The Space shortcuts, <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd>, have gaps of their own. While a three-finger swipe is still sliding, a swipe back cancels it, but the shortcuts do nothing: you wait for the slide to end and press again. The slide they start has a fixed length, too: no setting shortens it, and Reduce motion only swaps it for a fade.
+**The Space shortcuts stall.** While a three-finger swipe is still sliding, a swipe back cancels it, but <kbd>⌃</kbd> <kbd>1</kbd> … <kbd>⌃</kbd> <kbd>9</kbd> do nothing: you wait for the slide to end and press again. The slide they start has a fixed length, too: no setting shortens it, and Reduce motion only swaps it for a fade.
 
 ## What this does
 
