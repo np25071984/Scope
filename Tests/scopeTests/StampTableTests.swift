@@ -52,6 +52,37 @@ struct RecordingTests {
         #expect(table.lastUsed(1, before: 49) == 10)   // not 50.00 or 50.01
     }
 
+    @Test("switching apps, the deactivation arriving after the activation: the app switched to still ranks first, its activation is what ended the other's use")
+    func deactivationAfterActivation() {
+        var table = StampTable()
+        table.record(1, at: 10, pid: 1, frame: nil, space: space, as: .activated)
+        table.record(2, at: 20, pid: 2, frame: nil, space: space, as: .activated)
+        table.record(1, at: 20, pid: 1, frame: nil, space: space, as: .deactivated)
+        let ranked = table.rank([TestWindow(id: 1, pid: 1), TestWindow(id: 2, pid: 2)], space: space)
+        #expect(ids(ranked) == [2, 1])
+        #expect(table.lastUsed(1)! < 20)
+    }
+
+    @Test("switching apps, the deactivation arriving first: recorded when it arrived")
+    func deactivationFirst() {
+        var table = StampTable()
+        table.record(1, at: 10, pid: 1, frame: nil, space: space, as: .activated)
+        table.record(1, at: 20, pid: 1, frame: nil, space: space, as: .deactivated)
+        table.record(2, at: 20.01, pid: 2, frame: nil, space: space, as: .activated)
+        #expect(table.lastUsed(1) == 20)
+        let ranked = table.rank([TestWindow(id: 1, pid: 1), TestWindow(id: 2, pid: 2)], space: space)
+        #expect(ids(ranked) == [2, 1])
+    }
+
+    @Test("a deactivation after its own app's activation is recorded when it arrived: no other app took over")
+    func deactivationAfterOwnActivation() {
+        var table = StampTable()
+        table.record(2, at: 10, pid: 2, frame: nil, space: space, as: .activated)
+        table.record(1, at: 20, pid: 1, frame: nil, space: space, as: .activated)
+        table.record(1, at: 30, pid: 1, frame: nil, space: space, as: .deactivated)
+        #expect(table.lastUsed(1) == 30)
+    }
+
     @Test("uses further apart than the history window each become the previous one")
     func previousAdvances() {
         var table = StampTable()

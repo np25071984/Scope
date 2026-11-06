@@ -101,7 +101,7 @@ final class Recency {
         let frame = AX.frame(window), space = SkyLight.activeSpace()
 
         lock.lock()
-        table.record(id, at: now, pid: pid, frame: frame, space: space)
+        table.record(id, at: now, pid: pid, frame: frame, space: space, as: why)
         lock.unlock()
         Log.trace("\(why.rawValue): stamped window \(id) of pid \(pid)")
     }
