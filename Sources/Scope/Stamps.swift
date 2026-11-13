@@ -63,6 +63,17 @@ struct StampTable {
         source == .deactivated || onScreen()
     }
 
+    /// The Space a stamp is recorded on: the window's own. The active Space
+    /// is not it for a deactivation, which is handled once the Space being
+    /// left has gone [F49]; recorded there, a window on the Space left would
+    /// count as a tab of its app's window with the same frame on the Space
+    /// arrived at [F12]. The active Space is kept when the window is on it
+    /// too (on all Spaces), and when the window's Spaces are unknown.
+    static func space(on windowSpaces: [UInt64], active: UInt64?) -> UInt64? {
+        if let active, windowSpaces.contains(active) { return active }
+        return windowSpaces.first ?? active
+    }
+
     private(set) var stamps: [CGWindowID: Stamp] = [:]
     /// The latest activation recorded: which app, and when.
     private(set) var lastActivation: (pid: pid_t, at: TimeInterval)?

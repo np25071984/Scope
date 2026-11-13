@@ -209,6 +209,14 @@ struct TabGroupTests {
         #expect(ids(table.rank([up, other, twin], space: space)) == [3, 2, 1])
     }
 
+    @Test("a stamp is recorded on the window's own Space: a deactivation is handled after the switch, and the window it names stayed behind")
+    func windowsOwnSpace() {
+        #expect(StampTable.space(on: [otherSpace], active: space) == otherSpace)
+        #expect(StampTable.space(on: [otherSpace, space], active: space) == space)
+        #expect(StampTable.space(on: [], active: space) == space)
+        #expect(StampTable.space(on: [], active: nil) == nil)
+    }
+
     @Test("without the active Space, tab groups are not matched")
     func noSpace() {
         var table = StampTable()
