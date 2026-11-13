@@ -98,7 +98,8 @@ final class Recency {
             return
         }
         let now = ProcessInfo.processInfo.systemUptime
-        let frame = AX.frame(window), space = SkyLight.activeSpace()
+        let frame = AX.frame(window)
+        let space = StampTable.space(on: SkyLight.spaces(of: [id])[id] ?? [], active: SkyLight.activeSpace())
 
         lock.lock()
         table.record(id, at: now, pid: pid, frame: frame, space: space, as: why)
