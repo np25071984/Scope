@@ -2,6 +2,8 @@
 
 Keyboard-first window switching on macOS, scoped to the current Space, with keyboard focus that follows you between Spaces. Its Space shortcuts switch instantly, or with a slide as long as you like.
 
+![The scope overlay open over a blurred browser window, listing the windows of the current Space with the selected row highlighted](docs/screenshot.png)
+
 ## What macOS gets wrong
 
 **<kbd>⌘</kbd> <kbd>Tab</kbd> leaves the Space.** macOS <kbd>⌘</kbd> <kbd>Tab</kbd> switches *applications* across *all* Spaces. If you organise your work into Spaces, that defeats the purpose — you reach for the other window in front of you and get yanked into a different Space instead. The closest native tool is Mission Control (three-finger swipe up, or <kbd>⌃</kbd> <kbd>↑</kbd>). It does show the current Space's windows, but you pick one by pointing at it. If you would rather not reach for gestures or the pointer to change windows, there is no native way to cycle the windows in this Space from the keyboard.
@@ -21,8 +23,6 @@ scope does three things:
 ### Window switcher
 
 Replaces the switcher with one that lists **windows** (not apps) from the **current Space only**, driven from the keyboard, with the pointer there when you would rather aim at the window you want than count Tabs to it.
-
-![The scope overlay open over a blurred browser window, listing the windows of the current Space with the selected row highlighted](docs/screenshot.png)
 
 | Shortcut | Action |
 |---|---|
