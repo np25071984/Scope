@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-let version = "2.4.1"
+let version = "2.4.2"
 
 extension CommandLine {
     /// This binary's absolute path, symlinks resolved: what launchd must run,
