@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.4.2 — 2026-11-14
+
+Settings windows that macOS reports as dialogs, such as Xcode's, are now in the ⌘Tab list. Switching back to a Space where you last used one now focuses it: scope did not know the window, so it focused another app's window there instead. Upgrade with `brew upgrade scope` and `brew services restart scope`, or run `install.sh` again; the Accessibility permission is kept.
+
 ## 2.4.1 — 2026-11-13
 
 Switching to a Space now focuses the window you last used there when the app you left also has a window there of the same size and position: scope took the two for tabs of one window and could focus the wrong one. Upgrade with `brew upgrade scope` and `brew services restart scope`, or run `install.sh` again; the Accessibility permission is kept.
