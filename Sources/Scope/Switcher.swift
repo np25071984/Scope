@@ -76,6 +76,20 @@ final class Switcher {
         return result
     }
 
+    /// Whether a window with this Accessibility subrole belongs in the list [F8].
+    ///
+    /// Standard windows do. So do dialogs that are not modal: a settings
+    /// window such as Xcode's is one, and it is worked in like any other. A
+    /// modal dialog is an alert waiting for an answer, and the invisible
+    /// helper windows some apps park in every Space have other subroles.
+    static func isListed(subrole: String?, modal: Bool) -> Bool {
+        switch subrole {
+        case kAXStandardWindowSubrole as String: true
+        case kAXDialogSubrole as String: !modal
+        default: false
+        }
+    }
+
     func lastUsed(_ window: Window) -> TimeInterval? {
         recency.lastUsed(window.id)
     }

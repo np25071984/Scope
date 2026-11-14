@@ -94,7 +94,7 @@ final class WindowLister {
     private struct Known {
         let element: AXUIElement
         let title: String
-        let standard: Bool
+        let listed: Bool
     }
 
     // The last answer for every window an app has described, used in place of
@@ -146,29 +146,25 @@ final class WindowLister {
         else { return nil }
 
         var result: [CGWindowID: Known] = [:]
-        let attributes = [kAXSubroleAttribute, kAXTitleAttribute] as CFArray
+        let attributes = [kAXSubroleAttribute, kAXTitleAttribute, kAXModalAttribute] as CFArray
         for window in windows {
             guard let id = AX.windowID(window), wanted.contains(id) else { continue }
             var values: CFArray?
             guard AXUIElementCopyMultipleAttributeValues(
                 window, attributes, AXCopyMultipleAttributeOptions(rawValue: 0), &values) == .success,
-                let pair = values as? [Any], pair.count == 2
+                let triple = values as? [Any], triple.count == 3
             else { continue }
 
-            // Filtering to AXStandardWindow drops the invisible helper windows
-            // some apps park in every Space -- Teams keeps a 680x932 one titled
-            // "Window" -- along with sheets and dialogs, which a window
-            // switcher has no use for either.
-            let subrole = pair[0] as? String
+            // A window without the modal attribute is not modal.
             result[id] = Known(
                 element: window,
-                title: pair[1] as? String ?? "",
-                standard: subrole == kAXStandardWindowSubrole as String)
+                title: triple[1] as? String ?? "",
+                listed: Switcher.isListed(subrole: triple[0] as? String, modal: triple[2] as? Bool ?? false))
         }
         return result
     }
 
-    /// The standard windows on the Spaces now showing, frontmost first.
+    /// The listed windows on the Spaces now showing, frontmost first.
     func currentSpace() -> [Window] {
         let screen = onScreen()
         let pids = Array(Set(screen.map(\.pid)))
@@ -199,7 +195,7 @@ final class WindowLister {
             } else {
                 entry = known[w.id]
             }
-            guard let entry, entry.standard else { continue }
+            guard let entry, entry.listed else { continue }
             result.append(Window(
                 id: w.id, pid: w.pid, element: entry.element,
                 title: entry.title, frame: w.frame, z: w.z))
