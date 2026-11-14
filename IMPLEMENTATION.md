@@ -62,7 +62,7 @@ Re-check the *believed* ones before relying on them, and all of them after a maj
 
 - **F6.** `CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements])` lists exactly the windows ordered in on the Spaces currently showing, frontmost first, with id, pid, layer and bounds, without any permission. *(observed)* Window *titles* from it need Screen Recording permission, so titles must come from Accessibility. *(documented)*
 - **F7.** Document windows are layer 0. The menu bar, Dock, menus and floating panels are higher layers. *(observed)*
-- **F8.** Many apps keep invisible helper windows in every Space to render popups (Microsoft Teams keeps a 680×932 window titled "Window"). They, and sheets and dialogs, have an Accessibility subrole other than `AXStandardWindow`. *(observed)*
+- **F8.** Many apps keep invisible helper windows in every Space to render popups (Microsoft Teams keeps a 680×932 window titled "Window"). They, and sheets, have an Accessibility subrole other than `AXStandardWindow`. *(observed)* Xcode's Settings window has the subrole `AXDialog` with `AXModal` false. *(observed)* Teams' helper is not one of those: it stays out of the list when dialogs that are not modal are let in. *(observed)* Alerts are dialogs with `AXModal` true. *(believed)*
 - **F9.** Native window tabs: every tab is a separate window with its own id, but only the front tab is on screen and visible to Accessibility, and the tabs behind cannot be listed or targeted. *(observed)* Switching or closing tabs swaps windows without reliable notifications; a tab switched to by keyboard may announce nothing at all. *(believed: observed through an earlier window cache; not reproduced against an `AXObserver` on `kAXFocusedWindowChangedNotification`)*
 - **F10.** An Accessibility window element maps to its window-server id only through the private `_AXUIElementGetWindow`. *(observed)*
 - **F11.** Native-fullscreen windows each live on their own Space. *(observed)*
@@ -223,8 +223,8 @@ The class around it:
 Built fresh on every open; there is no window cache **[F9]**.
 
 1. `CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements])` **[F6]**. Keep layer 0 only **[F7]**, drop scope's own pid. Record id, pid, bounds, and z (position in this list, 0 frontmost).
-2. Group the ids by pid. For each pid, **in parallel** (`concurrentPerform`): read `kAXWindowsAttribute` of `AXUIElementCreateApplication(pid)`, map each element to an id with `_AXUIElementGetWindow` **[F10]**, keep the ids from step 1, and read subrole and title in one `AXUIElementCopyMultipleAttributeValues`.
-3. Keep only `AXStandardWindow` **[F8]**.
+2. Group the ids by pid. For each pid, **in parallel** (`concurrentPerform`): read `kAXWindowsAttribute` of `AXUIElementCreateApplication(pid)`, map each element to an id with `_AXUIElementGetWindow` **[F10]**, keep the ids from step 1, and read subrole, title and `AXModal` in one `AXUIElementCopyMultipleAttributeValues`.
+3. Keep the windows `Switcher.isListed` accepts by subrole and `AXModal` **[F8]**; the rule is in `Tests/scopeTests/SwitcherTests.swift`.
 4. An app that does not answer within the messaging timeout (250ms, set once on the system-wide element **[F13]**) is represented by its last known answer. Keep those answers in a table keyed by window id; when it passes 512 entries, drop the ids not on screen.
 5. Result: windows in stacking order with id, pid, AX element, title, frame (top-left global) and z.
 
@@ -411,7 +411,8 @@ A rebuild is done when `swift test` passes and every scenario below does. These 
 **Which windows**
 
 - [ ] Only windows on the current Space; none from other Spaces or fullscreen apps.
-- [ ] No Teams helper windows, sheets, dialogs, menus or panels.
+- [ ] No Teams helper windows, sheets, alerts, menus or panels.
+- [ ] A settings window, such as Xcode's, is listed.
 - [ ] A Terminal window with tabs is one row titled after the tab that is up, also after switching tabs by keyboard and after closing the front tab.
 - [ ] Committing to a tabbed window brings forward the tab that is up, not another.
 - [ ] Choosing one window of an app with several brings forward that window only.

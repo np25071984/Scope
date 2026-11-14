@@ -34,4 +34,18 @@ struct SwitcherTests {
         let list = [TestWindow(id: 1), TestWindow(id: 2)]
         #expect(Switcher.focusedFirst(list, focused: focused).map(\.id) == [1, 2])
     }
+
+    @Test("standard windows and dialogs that are not modal are listed: a settings window such as Xcode's is a dialog worked in like any other", arguments: [
+        ("AXStandardWindow", false), ("AXStandardWindow", true), ("AXDialog", false),
+    ])
+    func listed(subrole: String, modal: Bool) {
+        #expect(Switcher.isListed(subrole: subrole, modal: modal))
+    }
+
+    @Test("modal dialogs, floating windows and subroles that are missing or unknown are not: alerts and the helper windows some apps park in every Space have them", arguments: [
+        ("AXDialog", true), ("AXFloatingWindow", false), ("AXSystemDialog", false), ("AXUnknown", false), (nil, false),
+    ] as [(String?, Bool)])
+    func notListed(subrole: String?, modal: Bool) {
+        #expect(!Switcher.isListed(subrole: subrole, modal: modal))
+    }
 }
